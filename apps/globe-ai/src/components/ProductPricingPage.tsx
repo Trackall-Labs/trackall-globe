@@ -87,6 +87,8 @@ const SECTIONS: Section[] = [
       { label: "Wallet filtering", values: [false, "Custom", "Custom"] },
       { label: "User analytics", values: [false, "Metered", "Unlimited"] },
       { label: "Adverts & announcements", values: [false, "Sponsored", "Ecosystem-wide"] },
+      { label: "Ecosystem dashboard", values: [false, false, true] },
+      { label: "Grant reporting", values: [false, false, true] },
     ],
   },
   {
