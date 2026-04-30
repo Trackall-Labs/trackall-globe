@@ -961,7 +961,7 @@ input {
   z-index: 14;
   left: anchor(center);
   bottom: anchor(top);
-  pointer-events: auto;
+  pointer-events: var(--cobe-marker-events, none);
   opacity: var(--cobe-marker-visibility, 1);
   filter: blur(calc((1 - var(--cobe-marker-visibility, 1)) * 6px));
   transform: translate(-50%, -8px);
@@ -1035,7 +1035,7 @@ input {
 .cobe-canvas-wrap > div.fan-active .protocol-marker-fan,
 .protocol-marker-fan[data-cluster-expanded="true"] {
   opacity: var(--cobe-marker-visibility, 1);
-  pointer-events: auto;
+  pointer-events: var(--cobe-marker-events, none);
 }
 
 .protocol-marker-fan[data-cluster-expanded="true"] {
@@ -1067,7 +1067,7 @@ input {
   background: color-mix(in srgb, var(--popover) 88%, transparent);
   color: var(--popover-foreground);
   cursor: pointer;
-  pointer-events: auto;
+  pointer-events: var(--cobe-marker-events, none);
   padding: 4px 12px 4px 6px;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),

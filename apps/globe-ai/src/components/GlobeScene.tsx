@@ -32,6 +32,7 @@ type CobeTheme = {
 type MarkerStyle = React.CSSProperties & {
   positionAnchor?: string;
   "--cobe-marker-visibility"?: string;
+  "--cobe-marker-events"?: string;
   "--fan-radius-x"?: string;
   "--fan-radius-y"?: string;
   "--fan-progress"?: string;
@@ -371,7 +372,19 @@ function markerAnchorStyle(id: string): MarkerStyle {
   return {
     positionAnchor: `--cobe-${id}`,
     "--cobe-marker-visibility": `var(--cobe-visible-${id}, 0)`,
+    "--cobe-marker-events": `var(--cobe-events-${id}, none)`,
   };
+}
+
+function markerFacesCamera(lat: number, lng: number, phi: number, theta: number) {
+  const p = cobeLatLngToVec(lat, lng);
+  const cosPhi = Math.cos(phi);
+  const sinPhi = Math.sin(phi);
+  const cosT = Math.cos(theta);
+  const sinT = Math.sin(theta);
+  const zR = -sinPhi * cosT * p[0] + sinT * p[1] + cosPhi * cosT * p[2];
+
+  return zR > 0.02;
 }
 
 function markerId(prefix: string, value: string) {
@@ -468,10 +481,25 @@ export function GlobeScene({
 
   const markersRef = useRef(markers);
   const markersDirtyRef = useRef(false);
+  const markerInteractivityTargetsRef = useRef(
+    clusters.map((cluster) => ({
+      id: cluster.id,
+      lat: cluster.lat,
+      lng: cluster.lng,
+    })),
+  );
+  const markerEventsRef = useRef(new Map<string, string>());
   useEffect(() => {
     markersRef.current = markers;
     markersDirtyRef.current = true;
   }, [markers]);
+  useEffect(() => {
+    markerInteractivityTargetsRef.current = clusters.map((cluster) => ({
+      id: cluster.id,
+      lat: cluster.lat,
+      lng: cluster.lng,
+    }));
+  }, [clusters]);
 
   const arcRoutes = useMemo(() => {
     const byId = new Map(protocols.map((protocol) => [protocol.id, protocol]));
@@ -757,6 +785,21 @@ export function GlobeScene({
         if (nextActive !== lastFanActiveRef.current) {
           lastFanActiveRef.current = nextActive;
           cobeWrapper.classList.toggle("fan-active", nextActive);
+        }
+
+        for (const target of markerInteractivityTargetsRef.current) {
+          const nextEvents = markerFacesCamera(
+            target.lat,
+            target.lng,
+            phiRef.current,
+            thetaRef.current,
+          )
+            ? "auto"
+            : "none";
+          if (markerEventsRef.current.get(target.id) !== nextEvents) {
+            markerEventsRef.current.set(target.id, nextEvents);
+            cobeWrapper.style.setProperty(`--cobe-events-${target.id}`, nextEvents);
+          }
         }
       }
 
