@@ -18,6 +18,7 @@ import { NetworkIndexPage } from "./components/NetworkIndexPage";
 import { BlockHistoryPanel, MarketMetricsPanel, MobilePanelTabs } from "./components/Panels";
 import { NetworkPage } from "./components/NetworkPage";
 import { PortfolioPage } from "./components/PortfolioPage";
+import { ProductPricingPage } from "./components/ProductPricingPage";
 import { ProjectIndexPage } from "./components/ProjectIndexPage";
 import { ProtocolDetailPanel } from "./components/ProtocolDetailPanel";
 import { ProtocolPage } from "./components/ProtocolPage";
@@ -550,6 +551,7 @@ export function App() {
   const projectIndexRouteActive = isProjectIndexPath(currentPathname);
   const portfolioRouteActive = isPortfolioPath(currentPathname);
   const portfolioAddress = useMemo(() => getPortfolioAddressFromPath(currentPathname), [currentPathname]);
+  const pricingRouteActive = currentPathname === "/pricing";
   const homeRouteActive = currentPathname === "/";
   const filteredProtocols = useMemo(() => {
     if (!activeNetworkFilter) return PROTOCOLS;
@@ -751,7 +753,9 @@ export function App() {
       />
 
       <RouteTransition routeKey={routePath} surface={!homeRouteActive}>
-        {protocolRouteActive ? (
+        {pricingRouteActive ? (
+          <ProductPricingPage />
+        ) : protocolRouteActive ? (
           <ProtocolPage
             protocol={activeProtocol}
             requestedId={activeProtocolId}
