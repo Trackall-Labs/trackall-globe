@@ -848,7 +848,7 @@ input {
   align-items: center;
   gap: 8px;
   min-width: 76px;
-  max-width: 160px;
+  max-width: none;
   height: 36px;
   transform: translate(-50%, -50%);
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
@@ -874,6 +874,7 @@ input {
   left: anchor(center);
   bottom: anchor(top);
   pointer-events: auto;
+  opacity: var(--cobe-marker-visibility, 1);
   filter: blur(calc((1 - var(--cobe-marker-visibility, 1)) * 6px));
   transform: translate(-50%, -8px);
   transition:
@@ -920,12 +921,132 @@ input {
 }
 
 .protocol-marker-label {
-  overflow: hidden;
+  overflow: visible;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
+}
+
+.protocol-marker-fan {
+  z-index: 16;
+  min-width: 0;
+  max-width: none;
+  height: 30px;
+  padding: 3px 8px 3px 3px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(
+    calc(-50% + var(--fan-radius-x, 0px) * var(--fan-progress, 0)),
+    calc(-8px + var(--fan-radius-y, 0px) * var(--fan-progress, 0))
+  );
+  transition: opacity 200ms ease;
+}
+
+.cobe-canvas-wrap > div.fan-active .protocol-marker-fan,
+.protocol-marker-fan[data-cluster-expanded="true"] {
+  opacity: var(--cobe-marker-visibility, 1);
+  pointer-events: auto;
+}
+
+.protocol-marker-fan[data-cluster-expanded="true"] {
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease;
+}
+
+.protocol-marker-fan:hover,
+.protocol-marker-fan:focus-visible {
+  transform: translate(
+    calc(-50% + var(--fan-radius-x, 0px) * var(--fan-progress, 0)),
+    calc(-8px + var(--fan-radius-y, 0px) * var(--fan-progress, 0))
+  );
+}
+
+.protocol-cluster-marker {
+  position: absolute;
+  z-index: 15;
+  left: anchor(center);
+  bottom: anchor(top);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  transform: translate(-50%, -8px);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--popover) 88%, transparent);
+  color: var(--popover-foreground);
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 4px 12px 4px 6px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
+    0 10px 22px color-mix(in srgb, var(--background) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: var(--cobe-marker-visibility, 1);
+  filter: blur(calc((1 - var(--cobe-marker-visibility, 1)) * 6px));
+  transition:
+    opacity 220ms ease,
+    filter 180ms ease,
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.cobe-canvas-wrap > div.fan-active .protocol-cluster-marker,
+.protocol-cluster-marker[data-cluster-expanded="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.protocol-cluster-marker:hover,
+.protocol-cluster-marker:focus-visible {
+  border-color: color-mix(in srgb, var(--ring) 48%, transparent);
+  background: color-mix(in srgb, var(--popover) 96%, transparent);
+  outline: none;
+}
+
+.protocol-cluster-stack {
+  display: inline-flex;
+  align-items: center;
+}
+
+.protocol-cluster-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--primary);
+  font-size: 8px;
+  font-weight: 700;
+  border: 2px solid color-mix(in srgb, var(--popover) 92%, transparent);
+  margin-left: -10px;
+  overflow: hidden;
+}
+
+.protocol-cluster-logo:first-child {
+  margin-left: 0;
+}
+
+.protocol-cluster-logo img {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.protocol-cluster-count {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--popover-foreground);
+  padding-left: 2px;
 }
 
 .wallet-pin-marker,
@@ -934,6 +1055,7 @@ input {
   z-index: 14;
   left: anchor(center);
   bottom: anchor(top);
+  opacity: var(--cobe-marker-visibility, 1);
   filter: blur(calc((1 - var(--cobe-marker-visibility, 1)) * 6px));
   transform: translate(-50%, -8px);
   pointer-events: auto;

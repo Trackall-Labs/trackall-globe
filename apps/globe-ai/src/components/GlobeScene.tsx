@@ -1,11 +1,12 @@
 import createGlobe, { type COBEOptions, type Marker } from "cobe";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   getCountryName,
   loadCountryFeatures,
   type CountryFeature,
 } from "@/lib/countries";
+import { clusterProtocols, zoomToSplit, type Cluster } from "@/lib/clusters";
 import type { Protocol, WalletPin } from "@/lib/types";
 
 type Props = {
@@ -31,7 +32,56 @@ type CobeTheme = {
 type MarkerStyle = React.CSSProperties & {
   positionAnchor?: string;
   "--cobe-marker-visibility"?: string;
+  "--fan-radius-x"?: string;
+  "--fan-radius-y"?: string;
+  "--fan-progress"?: string;
 };
+
+type CameraTarget = {
+  startedAt: number;
+  duration: number;
+  fromPhi: number;
+  fromTheta: number;
+  fromZoom: number;
+  toPhi: number;
+  toTheta: number;
+  toZoom: number;
+};
+
+const CAMERA_TWEEN_MS = 700;
+const FAN_AUTO_START_ZOOM = 1.0;
+const MAX_FAN_RADIUS = 56;
+const MAX_DEVICE_PIXEL_RATIO = 1.5;
+const GOLDEN_ANGLE_RAD = Math.PI * (3 - Math.sqrt(5));
+
+function computeFanProgress(zoom: number) {
+  if (zoom <= FAN_AUTO_START_ZOOM) return 0;
+  const raw = (zoom - FAN_AUTO_START_ZOOM) / (MAX_GLOBE_ZOOM - FAN_AUTO_START_ZOOM);
+  const t = Math.min(1, Math.max(0, raw));
+  return t * t * (3 - 2 * t);
+}
+
+function hashUnit(input: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+function getFanOffset(clusterId: string, protocolId: string, index: number, radius: number) {
+  const rotation = hashUnit(clusterId) * Math.PI * 2;
+  const angleJitter = (hashUnit(`${clusterId}:${protocolId}:angle`) - 0.5) * 0.72;
+  const radiusJitter = 0.72 + hashUnit(`${protocolId}:${clusterId}:radius`) * 0.34;
+  const angle = rotation + index * GOLDEN_ANGLE_RAD + angleJitter - Math.PI / 2;
+  const distance = radius * radiusJitter;
+
+  return {
+    x: Math.cos(angle) * distance,
+    y: Math.sin(angle) * distance,
+  };
+}
 
 type DragState = {
   x: number;
@@ -59,28 +109,14 @@ const ARC_ROUTES: ReadonlyArray<{
   { from: "comp", to: "uni", offset: 0, duration: 2200, tone: "info" },
   { from: "uni", to: "aave", offset: 380, duration: 2400, tone: "infoBright" },
   { from: "aave", to: "lido", offset: 820, duration: 1900, tone: "info" },
-  { from: "lido", to: "maker", offset: 1240, duration: 2000, tone: "primary" },
-  { from: "maker", to: "curve", offset: 140, duration: 2100, tone: "info" },
   { from: "curve", to: "gmx", offset: 1540, duration: 2700, tone: "infoBright" },
   { from: "gmx", to: "jup", offset: 600, duration: 2000, tone: "info" },
   { from: "jup", to: "ray", offset: 1920, duration: 1600, tone: "primary" },
-  { from: "ray", to: "dydx", offset: 280, duration: 1900, tone: "infoBright" },
-  { from: "dydx", to: "comp", offset: 1040, duration: 2800, tone: "info" },
-  { from: "uni", to: "comp", offset: 1680, duration: 1700, tone: "primary" },
-  { from: "aave", to: "gmx", offset: 420, duration: 2500, tone: "info" },
-  { from: "comp", to: "aave", offset: 760, duration: 2100, tone: "infoBright" },
-  { from: "uni", to: "curve", offset: 1120, duration: 2300, tone: "primary" },
-  { from: "curve", to: "ray", offset: 320, duration: 2600, tone: "info" },
-  { from: "ray", to: "gmx", offset: 1360, duration: 2200, tone: "infoBright" },
-  { from: "jup", to: "uni", offset: 1860, duration: 2400, tone: "primary" },
-  { from: "maker", to: "jup", offset: 540, duration: 2800, tone: "info" },
-  { from: "lido", to: "comp", offset: 920, duration: 1800, tone: "infoBright" },
-  { from: "dydx", to: "gmx", offset: 1500, duration: 2500, tone: "primary" },
-  { from: "aave", to: "ray", offset: 1240, duration: 2700, tone: "info" },
-  { from: "curve", to: "comp", offset: 2040, duration: 2100, tone: "infoBright" },
+  { from: "navi", to: "suilend", offset: 280, duration: 1900, tone: "infoBright" },
+  { from: "cetus", to: "bluefin", offset: 1040, duration: 2300, tone: "primary" },
 ] as const;
 
-const ARC_SEGMENTS = 96;
+const ARC_SEGMENTS = 48;
 const ARC_SURFACE_RADIUS = 0.8;
 const ARC_ALTITUDE_BASE = 0.015;
 const ARC_ALTITUDE_GAIN = 0.5;
@@ -88,8 +124,8 @@ const ARC_DASH_RATIO = 0.24;
 const ARC_LINE_WIDTH = 1.65;
 const ARC_BASE_LINE_WIDTH = 0.9;
 const ARC_BASE_ALPHA = 0.11;
-const ARC_GLOW_BLUR = 8;
-const ARC_PULSE_COUNT = 2;
+const ARC_GLOW_BLUR = 4;
+const ARC_PULSE_COUNT = 1;
 
 const PIN_COUNTRY_TARGETS = [
   { country: "United States of America", label: "United States", lat: 37.7749, lng: -122.4194 },
@@ -178,6 +214,11 @@ function rgbToCss(rgb: [number, number, number], alpha = 1): string {
 
 function baseGlobeScale(width: number) {
   return width < 680 ? 0.9 : 1.08;
+}
+
+function getCanvasDpr() {
+  if (typeof window === "undefined") return 1;
+  return Math.min(window.devicePixelRatio || 1, MAX_DEVICE_PIXEL_RATIO);
 }
 
 function getInitialSize() {
@@ -321,7 +362,6 @@ function markerAnchorStyle(id: string): MarkerStyle {
   return {
     positionAnchor: `--cobe-${id}`,
     "--cobe-marker-visibility": `var(--cobe-visible-${id}, 0)`,
-    opacity: "var(--cobe-marker-visibility)",
   };
 }
 
@@ -357,20 +397,37 @@ export function GlobeScene({
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const suppressSelectionUntilRef = useRef(0);
   const arcEpochRef = useRef(performance.now());
+  const cameraTargetRef = useRef<CameraTarget | null>(null);
+  const lastFanProgressRef = useRef(-1);
+  const lastFanActiveRef = useRef(false);
   const [size, setSize] = useState(getInitialSize);
   const [countryFeatures, setCountryFeatures] = useState<CountryFeature[]>([]);
   const [hoveredCountry, setHoveredCountry] = useState<string | null>(null);
   const [anchorRoot, setAnchorRoot] = useState<HTMLElement | null>(null);
+  const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
+
+  const clusters = useMemo<Cluster[]>(
+    () => clusterProtocols(protocols, 0.25),
+    [protocols],
+  );
+
+  useEffect(() => {
+    if (!expandedClusterId) return;
+    if (!clusters.some((c) => c.id === expandedClusterId && c.collocated)) {
+      setExpandedClusterId(null);
+    }
+  }, [clusters, expandedClusterId]);
+
 
   const protocolMarkers = useMemo<Marker[]>(
     () =>
-      protocols.map((protocol, index) => ({
-        id: markerId("protocol", protocol.id),
-        location: [protocol.lat, protocol.lng],
+      clusters.map((cluster, index) => ({
+        id: cluster.id,
+        location: [cluster.lat, cluster.lng],
         size: 0,
         color: readTheme().chart[index % CHART_TOKENS.length] ?? readTheme().muted,
       })),
-    [protocols],
+    [clusters],
   );
 
   const pinMarkers = useMemo<Marker[]>(
@@ -399,6 +456,13 @@ export function GlobeScene({
     () => [...protocolMarkers, ...pinMarkers, ...pinTargetMarkers],
     [pinMarkers, pinTargetMarkers, protocolMarkers],
   );
+
+  const markersRef = useRef(markers);
+  const markersDirtyRef = useRef(false);
+  useEffect(() => {
+    markersRef.current = markers;
+    markersDirtyRef.current = true;
+  }, [markers]);
 
   const arcRoutes = useMemo(() => {
     const byId = new Map(protocols.map((protocol) => [protocol.id, protocol]));
@@ -457,7 +521,7 @@ export function GlobeScene({
     if (!canvas) return;
 
     const theme = readTheme();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = getCanvasDpr();
     const width = Math.round(size.width * dpr);
     const height = Math.round(size.height * dpr);
     const baseScale = baseGlobeScale(size.width);
@@ -614,7 +678,7 @@ export function GlobeScene({
       theta: thetaRef.current,
       dark: 1,
       diffuse: 2.4,
-      mapSamples: 22000,
+      mapSamples: 14000,
       mapBrightness: 4.8,
       mapBaseBrightness: 0.03,
       baseColor: [0.16, 0.17, 0.18],
@@ -624,11 +688,11 @@ export function GlobeScene({
       scale: baseScale * zoomRef.current,
       offset: sceneOffset,
       opacity: 0.96,
-      markers,
+      markers: markersRef.current,
       context: {
         alpha: true,
         antialias: true,
-        preserveDrawingBuffer: true,
+        preserveDrawingBuffer: false,
       },
     };
 
@@ -651,8 +715,18 @@ export function GlobeScene({
       }
 
       const velocity = rotationVelocityRef.current;
+      const tween = cameraTargetRef.current;
 
-      if (!dragRef.current && (Math.abs(velocity.phi) > 0 || Math.abs(velocity.theta) > 0)) {
+      if (tween) {
+        const t = Math.min(1, (performance.now() - tween.startedAt) / tween.duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        phiRef.current = wrapRadians(tween.fromPhi + (tween.toPhi - tween.fromPhi) * eased);
+        thetaRef.current = wrapRadians(tween.fromTheta + (tween.toTheta - tween.fromTheta) * eased);
+        zoomRef.current = tween.fromZoom + (tween.toZoom - tween.fromZoom) * eased;
+        velocity.phi = 0;
+        velocity.theta = 0;
+        if (t >= 1) cameraTargetRef.current = null;
+      } else if (!dragRef.current && (Math.abs(velocity.phi) > 0 || Math.abs(velocity.theta) > 0)) {
         phiRef.current = wrapRadians(phiRef.current + velocity.phi);
         thetaRef.current = wrapRadians(thetaRef.current + velocity.theta);
         velocity.phi *= DRAG_INERTIA_FRICTION;
@@ -663,12 +737,30 @@ export function GlobeScene({
       } else if (!dragRef.current && !markerHoverRef.current && Date.now() > pausedUntil) {
         phiRef.current += AUTO_ROTATION_SPEED;
       }
-      globe.update({
+
+      if (cobeWrapper) {
+        const progress = computeFanProgress(zoomRef.current);
+        if (Math.abs(progress - lastFanProgressRef.current) > 0.01) {
+          lastFanProgressRef.current = progress;
+          cobeWrapper.style.setProperty("--fan-progress", progress.toFixed(3));
+        }
+        const nextActive = progress > 0.5;
+        if (nextActive !== lastFanActiveRef.current) {
+          lastFanActiveRef.current = nextActive;
+          cobeWrapper.classList.toggle("fan-active", nextActive);
+        }
+      }
+
+      const updatePayload: Parameters<typeof globe.update>[0] = {
         phi: phiRef.current,
         theta: thetaRef.current,
         scale: baseScale * zoomRef.current,
-        markers,
-      });
+      };
+      if (markersDirtyRef.current) {
+        updatePayload.markers = markersRef.current;
+        markersDirtyRef.current = false;
+      }
+      globe.update(updatePayload);
       drawArcs(performance.now());
       animationFrame = requestAnimationFrame(animate);
     };
@@ -698,13 +790,7 @@ export function GlobeScene({
       const zoom = clamp(nextZoom, MIN_GLOBE_ZOOM, MAX_GLOBE_ZOOM);
       if (zoom === zoomRef.current) return;
       zoomRef.current = zoom;
-      globe.update({
-        phi: phiRef.current,
-        theta: thetaRef.current,
-        scale: baseScale * zoomRef.current,
-        markers,
-      });
-      drawArcs(performance.now());
+      cameraTargetRef.current = null;
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -726,6 +812,8 @@ export function GlobeScene({
       canvas.setPointerCapture(event.pointerId);
       activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
       rotationVelocityRef.current = { phi: 0, theta: 0 };
+      cameraTargetRef.current = null;
+      setExpandedClusterId(null);
 
       if (activePointersRef.current.size >= 2) {
         pinchRef.current = {
@@ -860,7 +948,7 @@ export function GlobeScene({
       }
       globeRef.current = null;
     };
-  }, [arcRoutes, markers, size.height, size.width]);
+  }, [arcRoutes, size.height, size.width]);
 
   const selectCountry = (country: string) => {
     if (Date.now() < suppressSelectionUntilRef.current) return;
@@ -870,7 +958,33 @@ export function GlobeScene({
 
   const selectProtocol = (protocol: Protocol) => {
     if (Date.now() < suppressSelectionUntilRef.current) return;
+    setExpandedClusterId(null);
     onProtocolSelected(protocol);
+  };
+
+  const expandCluster = (cluster: Cluster) => {
+    if (Date.now() < suppressSelectionUntilRef.current) return;
+    if (cluster.collocated) {
+      setExpandedClusterId(cluster.id);
+      return;
+    }
+    setExpandedClusterId(null);
+    const targetPhiRaw = -Math.PI / 2 - cluster.lng * (Math.PI / 180);
+    const targetThetaRaw = cluster.lat * (Math.PI / 180);
+    const fromPhi = phiRef.current;
+    const fromTheta = thetaRef.current;
+    const deltaPhi = wrapRadians(targetPhiRaw - fromPhi);
+    const deltaTheta = wrapRadians(targetThetaRaw - fromTheta);
+    cameraTargetRef.current = {
+      startedAt: performance.now(),
+      duration: CAMERA_TWEEN_MS,
+      fromPhi,
+      fromTheta,
+      fromZoom: zoomRef.current,
+      toPhi: fromPhi + deltaPhi,
+      toTheta: fromTheta + deltaTheta,
+      toZoom: zoomToSplit(cluster, MIN_GLOBE_ZOOM, MAX_GLOBE_ZOOM),
+    };
   };
 
   const handleMarkerEnter = (
@@ -897,26 +1011,97 @@ export function GlobeScene({
 
   const markerLayer = (
     <div className="cobe-marker-layer" aria-label="Protocol markers">
-          {protocols.map((protocol) => {
-            const id = markerId("protocol", protocol.id);
-            return (
+          {clusters.map((cluster) => {
+            if (cluster.protocols.length === 1) {
+              const protocol = cluster.protocols[0]!;
+              return (
+                <button
+                  key={cluster.id}
+                  type="button"
+                  className="protocol-marker cobe-marker"
+                  style={markerAnchorStyle(cluster.id)}
+                  onPointerEnter={(event) => handleMarkerEnter(protocol, event)}
+                  onPointerLeave={() => handleMarkerLeave(protocol)}
+                  onFocus={(event) => handleMarkerEnter(protocol, event)}
+                  onBlur={() => handleMarkerLeave(protocol)}
+                  onClick={() => selectProtocol(protocol)}
+                  aria-label={`${protocol.name} protocol marker`}
+                >
+                  <span className="protocol-marker-logo">
+                    {protocol.logo ? <img src={protocol.logo} alt="" /> : protocol.symbol.slice(0, 3)}
+                  </span>
+                  <span className="protocol-marker-label">{protocol.name}</span>
+                </button>
+              );
+            }
+
+            const isExpanded = cluster.collocated && expandedClusterId === cluster.id;
+            const showFan = cluster.collocated && (isExpanded || cluster.protocols.length === 2);
+            const showBadge = !(cluster.collocated && cluster.protocols.length === 2);
+            const visible = cluster.protocols.slice(0, 3);
+            const count = cluster.protocols.length;
+            const fanRadius = Math.min(92, MAX_FAN_RADIUS + Math.max(0, count - 3) * 8);
+            const badge = (
               <button
-                key={protocol.id}
+                key={`badge-${cluster.id}`}
                 type="button"
-                className="protocol-marker cobe-marker"
-                style={markerAnchorStyle(id)}
-                onPointerEnter={(event) => handleMarkerEnter(protocol, event)}
-                onPointerLeave={() => handleMarkerLeave(protocol)}
-                onFocus={(event) => handleMarkerEnter(protocol, event)}
-                onBlur={() => handleMarkerLeave(protocol)}
-                onClick={() => selectProtocol(protocol)}
-                aria-label={`${protocol.name} protocol marker`}
+                className="protocol-cluster-marker cobe-marker"
+                data-cluster-expanded={isExpanded ? "true" : undefined}
+                style={markerAnchorStyle(cluster.id)}
+                onPointerEnter={() => handleMarkerEnter()}
+                onPointerLeave={() => handleMarkerLeave()}
+                onClick={() => expandCluster(cluster)}
+                aria-label={`Cluster of ${count} protocols`}
+                title={cluster.protocols.map((p) => p.name).join(", ")}
               >
-                <span className="protocol-marker-logo">
-                  {protocol.logo ? <img src={protocol.logo} alt="" /> : protocol.symbol.slice(0, 3)}
+                <span className="protocol-cluster-stack">
+                  {visible.map((p) => (
+                    <span key={p.id} className="protocol-cluster-logo">
+                      {p.logo ? <img src={p.logo} alt="" /> : p.symbol.slice(0, 2)}
+                    </span>
+                  ))}
                 </span>
-                <span className="protocol-marker-label">{protocol.name}</span>
+                <span className="protocol-cluster-count">{count}</span>
               </button>
+            );
+
+            return (
+              <Fragment key={cluster.id}>
+                {showBadge ? badge : null}
+                {cluster.protocols.map((protocol, i) => {
+                  const fanOffset = getFanOffset(cluster.id, protocol.id, i, fanRadius);
+                  return (
+                    <button
+                      key={protocol.id}
+                      type="button"
+                      className="protocol-marker protocol-marker-fan cobe-marker"
+                      data-cluster-expanded={showFan ? "true" : undefined}
+                      style={
+                        {
+                          ...markerAnchorStyle(cluster.id),
+                          "--fan-radius-x": `${fanOffset.x}px`,
+                          "--fan-radius-y": `${fanOffset.y}px`,
+                          ...(showFan ? { "--fan-progress": "1" } : null),
+                        } as MarkerStyle
+                      }
+                      onPointerEnter={(event) => handleMarkerEnter(protocol, event)}
+                      onPointerLeave={() => handleMarkerLeave(protocol)}
+                      onFocus={(event) => handleMarkerEnter(protocol, event)}
+                      onBlur={() => handleMarkerLeave(protocol)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        selectProtocol(protocol);
+                      }}
+                      aria-label={`${protocol.name} protocol marker`}
+                    >
+                      <span className="protocol-marker-logo">
+                        {protocol.logo ? <img src={protocol.logo} alt="" /> : protocol.symbol.slice(0, 3)}
+                      </span>
+                      <span className="protocol-marker-label">{protocol.name}</span>
+                    </button>
+                  );
+                })}
+              </Fragment>
             );
           })}
 
@@ -975,8 +1160,8 @@ export function GlobeScene({
             width: size.width,
             height: size.height,
           }}
-          width={size.width * Math.min(window.devicePixelRatio || 1, 2)}
-          height={size.height * Math.min(window.devicePixelRatio || 1, 2)}
+          width={size.width * getCanvasDpr()}
+          height={size.height * getCanvasDpr()}
         />
         <canvas
           ref={arcsCanvasRef}
@@ -986,8 +1171,8 @@ export function GlobeScene({
             width: size.width,
             height: size.height,
           }}
-          width={size.width * Math.min(window.devicePixelRatio || 1, 2)}
-          height={size.height * Math.min(window.devicePixelRatio || 1, 2)}
+          width={size.width * getCanvasDpr()}
+          height={size.height * getCanvasDpr()}
         />
       </div>
 

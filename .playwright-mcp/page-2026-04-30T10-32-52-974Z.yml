@@ -1,0 +1,207 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - generic "Primary":
+      - navigation [ref=e4]:
+        - button "Home" [ref=e5] [cursor=pointer]:
+          - img [ref=e6]
+          - generic [ref=e9]: Home
+        - button "Networks" [ref=e10] [cursor=pointer]:
+          - img [ref=e11]
+          - generic [ref=e15]: Networks
+        - button "Projects" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+          - generic [ref=e27]: Projects
+        - button "Portfolio" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+          - generic [ref=e32]: Portfolio
+    - region "Interactive DeFi globe" [ref=e33]:
+      - generic [ref=e35]:
+        - generic "Protocol markers":
+          - button "Cluster of 2 protocols":
+            - generic: "2"
+          - button "Aave protocol marker" [ref=e182] [cursor=pointer]:
+            - generic [ref=e184]: Aave
+          - button "Scallop Lend protocol marker" [ref=e185] [cursor=pointer]:
+            - generic [ref=e187]: Scallop Lend
+          - button "Cluster of 2 protocols":
+            - generic: "2"
+          - button "AlphaFi Agg protocol marker" [ref=e188] [cursor=pointer]:
+            - generic [ref=e190]: AlphaFi Agg
+          - button "Jupiter protocol marker" [ref=e191] [cursor=pointer]:
+            - generic [ref=e193]: Jupiter
+          - button "AlphaLend protocol marker" [ref=e47] [cursor=pointer]:
+            - generic [ref=e49]: AlphaLend
+          - button "Cluster of 2 protocols":
+            - generic: "2"
+          - button "Bluefin Spot protocol marker" [ref=e194] [cursor=pointer]:
+            - generic [ref=e196]: Bluefin Spot
+          - button "GMX protocol marker" [ref=e197] [cursor=pointer]:
+            - generic [ref=e199]: GMX
+          - button "Cluster of 3 protocols":
+            - generic: "3"
+          - button "Bucket CDP protocol marker" [ref=e200] [cursor=pointer]:
+            - generic [ref=e202]: Bucket CDP
+          - button "dYdX protocol marker" [ref=e203] [cursor=pointer]:
+            - generic [ref=e205]: dYdX
+          - button "Haedal Protocol protocol marker" [ref=e206] [cursor=pointer]:
+            - generic [ref=e208]: Haedal Protocol
+          - button "Bucket Farm protocol marker" [ref=e61] [cursor=pointer]:
+            - generic [ref=e63]: Bucket Farm
+          - button "Cluster of 3 protocols":
+            - generic: "3"
+          - button "Cetus CLMM protocol marker" [ref=e209] [cursor=pointer]:
+            - generic [ref=e211]: Cetus CLMM
+          - button "NAVI Lending protocol marker" [ref=e212] [cursor=pointer]:
+            - generic [ref=e214]: NAVI Lending
+          - button "Raydium protocol marker" [ref=e215] [cursor=pointer]:
+            - generic [ref=e217]: Raydium
+          - button "Cluster of 2 protocols":
+            - generic: "2"
+          - button "Compound protocol marker" [ref=e218] [cursor=pointer]:
+            - generic [ref=e220]: Compound
+          - button "Suilend protocol marker" [ref=e221] [cursor=pointer]:
+            - generic [ref=e223]: Suilend
+          - button "Cluster of 2 protocols":
+            - generic: "2"
+          - button "Current protocol marker" [ref=e224] [cursor=pointer]:
+            - generic [ref=e226]: Current
+          - button "Uniswap protocol marker" [ref=e227] [cursor=pointer]:
+            - generic [ref=e229]: Uniswap
+          - button "Curve protocol marker" [ref=e80] [cursor=pointer]:
+            - generic [ref=e82]: Curve
+          - button "DeepBook V3 protocol marker" [ref=e83] [cursor=pointer]:
+            - generic [ref=e85]: DeepBook V3
+          - button "Cluster of 2 protocols":
+            - generic: "2"
+          - button "Lido protocol marker" [ref=e230] [cursor=pointer]:
+            - generic [ref=e232]: Lido
+          - button "Volo LST protocol marker" [ref=e233] [cursor=pointer]:
+            - generic [ref=e235]: Volo LST
+          - button "Sky protocol marker" [ref=e91] [cursor=pointer]:
+            - generic [ref=e93]: Sky
+          - button "Momentum protocol marker" [ref=e94] [cursor=pointer]:
+            - generic [ref=e96]: Momentum
+          - button "SpringSui protocol marker" [ref=e97] [cursor=pointer]:
+            - generic [ref=e99]: SpringSui
+    - complementary [ref=e100]:
+      - generic [ref=e101]:
+        - generic [ref=e104]: Block Stream
+        - generic [ref=e105]: "#248,239,565"
+      - generic "Recent blocks" [ref=e106]:
+        - button "Block 248,239,421, Finalized, 684ms finality" [ref=e109]
+        - button "Block 248,239,422, Finalized, 678ms finality" [ref=e110]
+        - button "Block 248,239,425, Finalized, 569ms finality" [ref=e111]
+        - button "Block 248,239,427, Failed, 657ms finality" [ref=e112]
+        - button "Block 248,239,429, Pending, 736ms finality" [ref=e113]
+        - button "Block 248,239,430, Failed, 798ms finality" [ref=e114]
+        - button "Block 248,239,433, Finalized, 908ms finality" [ref=e115]
+        - button "Block 248,239,436, Failed, 902ms finality" [ref=e116]
+        - button "Block 248,239,437, Finalized, 957ms finality" [ref=e117]
+        - button "Block 248,239,438, Finalized, 960ms finality" [ref=e118]
+        - button "Block 248,239,441, Failed, 1067ms finality" [ref=e119]
+        - button "Block 248,239,444, Failed, 1076ms finality" [ref=e120]
+        - button "Block 248,239,447, Finalized, 1139ms finality" [ref=e121]
+        - button "Block 248,239,449, Finalized, 1062ms finality" [ref=e122]
+        - button "Block 248,239,450, Finalized, 1012ms finality" [ref=e123]
+        - button "Block 248,239,453, Finalized, 1057ms finality" [ref=e124]
+        - button "Block 248,239,454, Failed, 1078ms finality" [ref=e125]
+        - button "Block 248,239,455, Finalized, 1146ms finality" [ref=e126]
+        - button "Block 248,239,458, Finalized, 1199ms finality" [ref=e127]
+        - button "Block 248,239,459, Finalized, 1265ms finality" [ref=e128]
+        - button "Block 248,239,462, Finalized, 1250ms finality" [ref=e129]
+        - button "Block 248,239,464, Finalized, 1139ms finality" [ref=e130]
+        - button "Block 248,239,466, Finalized, 1161ms finality" [ref=e131]
+        - button "Block 248,239,467, Finalized, 1187ms finality" [ref=e132]
+        - button "Block 248,239,470, Pending, 1150ms finality" [ref=e133]
+        - button "Block 248,239,473, Pending, 1231ms finality" [ref=e134]
+        - button "Block 248,239,475, Failed, 1348ms finality" [ref=e135]
+        - button "Block 248,239,476, Finalized, 1334ms finality" [ref=e136]
+        - button "Block 248,239,478, Finalized, 1291ms finality" [ref=e137]
+        - button "Block 248,239,480, Finalized, 1346ms finality" [ref=e138]
+        - button "Block 248,239,561, Failed, 963ms finality" [ref=e236]
+        - button "Block 248,239,565, Finalized, 929ms finality" [ref=e237]
+      - generic [ref=e139]:
+        - generic [ref=e140]: Avg latency
+        - strong [ref=e141]: 1040 ms
+    - complementary [ref=e142]:
+      - generic [ref=e143]:
+        - generic [ref=e146]: Live Markets
+        - generic [ref=e147]: 25 Protocols
+      - generic [ref=e148]:
+        - generic [ref=e149]:
+          - img [ref=e151]
+          - generic [ref=e154]: Total TVL
+          - strong [ref=e155]: $62.67B
+          - generic [ref=e156]: +1.84%
+        - generic [ref=e157]:
+          - img [ref=e159]
+          - generic [ref=e163]: 24h Volume
+          - strong [ref=e164]: $14.39B
+          - generic [ref=e165]: "-0.42%"
+        - generic [ref=e166]:
+          - img [ref=e168]
+          - generic [ref=e175]: Live TPS
+          - strong [ref=e176]: 4.2K
+          - generic [ref=e177]: rolling
+      - generic [ref=e178]:
+        - generic [ref=e179]:
+          - img [ref=e180]
+          - text: Mainnet
+        - strong [ref=e181]: 24h rolling
+  - generic:
+    - region "Notifications"
+  - generic:
+    - region "Notifications":
+      - dialog "Whale deposit detected" [ref=e253]:
+        - generic [ref=e255]:
+          - generic [ref=e256]:
+            - img
+          - generic [ref=e257]:
+            - heading "Whale deposit detected" [level=2] [ref=e258]
+            - paragraph [ref=e259]:
+              - generic [ref=e260]:
+                - generic [ref=e261]: 21112...59899
+                - generic [ref=e262]: moved $8.6M into
+                - button "Suilend" [ref=e263]
+                - generic [ref=e264]: vaults on
+                - button "Sui" [ref=e265]
+                - generic [ref=e266]: tx 0x18f6...5c3a
+      - dialog "Jupiter user activity up" [ref=e238]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - heading "Jupiter user activity up" [level=2]:
+                - generic:
+                  - button "Jupiter"
+                  - generic: user activity up
+              - paragraph:
+                - generic:
+                  - button "Solana"
+                  - generic: saw a fresh burst of wallet interactions.
+      - dialog "Arbitrum finality stable" [ref=e251]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - heading "Arbitrum finality stable" [level=2]:
+                - generic:
+                  - button "Arbitrum"
+                  - generic: finality stable
+              - paragraph: Blocks confirming near 2s with healthy relay activity.
+      - dialog "Uniswap routed $9.4M" [ref=e252]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - heading "Uniswap routed $9.4M" [level=2]:
+                - generic:
+                  - button "Uniswap"
+                  - generic: routed $9.4M
+              - paragraph:
+                - generic:
+                  - button "Ethereum"
+                  - generic: liquidity path settled across live markets.
