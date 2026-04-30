@@ -17,6 +17,7 @@ type Plan = {
   price: string;
   cadence: string;
   blurb: string;
+  ctaLabel: string;
   highlight?: boolean;
 };
 
@@ -32,66 +33,68 @@ type Section = {
 
 const PLANS: Plan[] = [
   {
-    id: "explorer",
-    name: "Explorer",
-    price: "$0",
-    cadence: "/mo",
-    blurb: "For teams evaluating the live UI surface.",
+    id: "users",
+    name: "Users",
+    price: "Free",
+    cadence: "",
+    blurb: "For wallet holders, community teams, and public ecosystem discovery.",
+    ctaLabel: "Start free",
   },
   {
-    id: "analyst",
-    name: "Analyst",
-    price: "$0",
-    cadence: "/mo",
-    blurb: "For analytics surfaces and read API access.",
+    id: "projects",
+    name: "Projects",
+    price: "Usage-based",
+    cadence: "",
+    blurb: "For builders paying by usage across wallet data, activity, and analytics.",
+    ctaLabel: "Get API access",
     highlight: true,
   },
   {
-    id: "infrastructure",
-    name: "Infrastructure",
-    price: "$0",
-    cadence: "/mo",
-    blurb: "For custom indexing, isolated nodes, and rate-limit needs.",
+    id: "foundation",
+    name: "Foundation",
+    price: "Custom",
+    cadence: "",
+    blurb: "For foundations giving every project and user faster data, deeper insights, and dedicated infra.",
+    ctaLabel: "Talk to us",
   },
 ];
 
 const SECTIONS: Section[] = [
   {
-    title: "Product UI",
+    title: "Product",
     rows: [
       { label: "Globe UI", values: [true, true, true] },
       { label: "Project Explorer", values: [true, true, true] },
-      { label: "Project Analytics", values: ["10 projects", "100 projects", "Unlimited"] },
-      { label: "Network Analytics", values: ["3 networks", "25 networks", "Unlimited"] },
       { label: "Portfolio Explorer", values: [true, true, true] },
     ],
   },
   {
-    title: "APIs",
+    title: "Data Access",
     rows: [
-      { label: "Portfolio tokens API", values: [false, "100K/mo", "2M/mo"] },
-      { label: "Token prices API", values: [false, "500K/mo", "10M/mo"] },
-      { label: "Network analytics API", values: [false, "100K/mo", "2M/mo"] },
-      { label: "Project analytics API", values: [false, "100K/mo", "2M/mo"] },
-      { label: "Activity feed API", values: [false, "50K/mo", "1M/mo"] },
+      { label: "Wallet balances", values: [false, "Metered", "Unlimited"] },
+      { label: "Token prices", values: [false, "Metered", "Unlimited"] },
+      { label: "DeFi positions", values: [false, "Metered", "Unlimited"] },
+      { label: "Project analytics", values: [false, "Metered", "Unlimited"] },
+      { label: "Real-time activity", values: [false, "Metered", "Unlimited"] },
+      { label: "Balance history", values: [false, "Metered", "Unlimited"] },
     ],
   },
   {
-    title: "Users & Activity",
+    title: "Growth Analytics",
     rows: [
-      { label: "Activity feed UI", values: [false, true, true] },
-      { label: "Project user analytics", values: [false, true, true] },
-      { label: "User filtering", values: [false, "25 filters", "Unlimited"] },
-      { label: "User analytics API", values: [false, "50K/mo", "1M/mo"] },
+      { label: "Activity feed UI", values: [true, true, true] },
+      { label: "Project user cohorts", values: [false, true, true] },
+      { label: "Wallet filtering", values: [false, "Custom", "Custom"] },
+      { label: "User analytics", values: [false, "Metered", "Unlimited"] },
+      { label: "Adverts & announcements", values: [false, "Sponsored", "Ecosystem-wide"] },
     ],
   },
   {
-    title: "Data & Infra",
+    title: "Infrastructure",
     rows: [
-      { label: "Isolated node indexing", values: [false, false, "1 node"] },
-      { label: "Balance history", values: [false, "180 days", "2 years"] },
-      { label: "PnL over time", values: [false, "180 days", "2 years"] },
-      { label: "Customizable rate limits", values: [false, "300/min", "2K/min"] },
+      { label: "Dedicated node", values: [false, false, "Dedicated"] },
+      { label: "Dedicated support", values: [false, false, true] },
+      { label: "Rate limit", values: [false, "300/min", "Custom"] },
     ],
   },
 ];
@@ -118,14 +121,14 @@ export function ProductPricingPage() {
       <main className="mx-auto max-w-6xl px-6 py-8">
         <section className="max-w-3xl">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-            Unlimited onchain intelligence
+            Ecosystem intelligence platform
           </div>
-          <h1 className="mt-2 font-heading text-3xl tracking-tight md:text-4xl">
+          <h1 className="mt-2 max-w-3xl text-balance font-heading text-3xl tracking-tight md:text-4xl">
             Unlimited intelligence for your ecosystem.
           </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-            See every network, project, wallet, user, token price, activity stream, and API
-            signal from one live operating layer.
+          <p className="mt-3 max-w-2xl text-pretty text-sm leading-6 text-muted-foreground">
+            One intelligence layer for ecosystem teams, builders, and users: explorer UI,
+            wallet data, project analytics, activity feeds, and infrastructure APIs.
           </p>
         </section>
 
@@ -201,7 +204,8 @@ export function ProductPricingPage() {
                 ))}
                 <TableRow className="border-border/60 bg-foreground/[0.02] hover:bg-foreground/[0.02]">
                   <TableCell className="px-4 py-4 text-muted-foreground text-xs">
-                    Pricing is placeholder while access is private.
+                    Users are free. Projects are billed by metered API usage. Foundations
+                    get custom infrastructure and limits.
                   </TableCell>
                   {PLANS.map((plan) => (
                     <TableCell key={plan.id} className="px-4 py-4">
@@ -211,7 +215,7 @@ export function ProductPricingPage() {
                         variant={plan.highlight ? "default" : "outline"}
                         aria-label={`Request access to ${plan.name}`}
                       >
-                        Request access
+                        {plan.ctaLabel}
                       </Button>
                     </TableCell>
                   ))}

@@ -738,7 +738,7 @@ export function App() {
         onNavigatePortfolio={handleNavigatePortfolio}
       />
 
-      {activeNetworkFilter ? (
+      {activeNetworkFilter && !pricingRouteActive ? (
         <NetworkFilterChip network={activeNetworkFilter} onClear={handleClearNetworkFilter} />
       ) : null}
 
