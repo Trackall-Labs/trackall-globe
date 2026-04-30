@@ -113,7 +113,16 @@ const ARC_ROUTES: ReadonlyArray<{
   { from: "gmx", to: "jup", offset: 600, duration: 2000, tone: "info" },
   { from: "jup", to: "ray", offset: 1920, duration: 1600, tone: "primary" },
   { from: "navi", to: "suilend", offset: 280, duration: 1900, tone: "infoBright" },
+  { from: "suilend", to: "scallop", offset: 680, duration: 2100, tone: "info" },
+  { from: "scallop", to: "current", offset: 1140, duration: 2250, tone: "primary" },
+  { from: "current", to: "alphalend", offset: 1560, duration: 2050, tone: "infoBright" },
+  { from: "springsui", to: "haedal", offset: 340, duration: 1800, tone: "primary" },
+  { from: "haedal", to: "volo-lst", offset: 980, duration: 2200, tone: "info" },
   { from: "cetus", to: "bluefin", offset: 1040, duration: 2300, tone: "primary" },
+  { from: "bluefin", to: "deepbook", offset: 1480, duration: 1850, tone: "infoBright" },
+  { from: "deepbook", to: "momentum", offset: 1880, duration: 2150, tone: "info" },
+  { from: "bucket", to: "alphafi", offset: 520, duration: 2350, tone: "primary" },
+  { from: "alphafi", to: "cetus", offset: 1320, duration: 1950, tone: "infoBright" },
 ] as const;
 
 const ARC_SEGMENTS = 48;

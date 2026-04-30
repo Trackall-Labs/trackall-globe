@@ -2,10 +2,13 @@ import { ArrowUpRightIcon, GlobeIcon, LayersIcon } from "lucide-react";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
-import { PROTOCOLS } from "@/lib/protocols";
+import type { Network } from "@/lib/networks";
+import type { Protocol } from "@/lib/types";
 
 type Props = {
+  activeNetworkFilter: Network | null;
   onOpenProtocol: (protocolId: string) => void;
+  protocols: Protocol[];
 };
 
 const VISIBLE_NETWORKS = 3;
@@ -20,7 +23,11 @@ function projectInitials(name: string) {
     .toUpperCase();
 }
 
-export function ProjectIndexPage({ onOpenProtocol }: Props) {
+export function ProjectIndexPage({
+  activeNetworkFilter,
+  onOpenProtocol,
+  protocols,
+}: Props) {
   return (
     <div className="absolute inset-0 z-40 overflow-y-auto overflow-x-hidden bg-background pt-[64px] text-foreground">
       <header className="border-b border-border/60 px-6 py-3">
@@ -29,7 +36,7 @@ export function ProjectIndexPage({ onOpenProtocol }: Props) {
             Projects · DeFi protocols
           </div>
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-            {PROTOCOLS.length.toString().padStart(2, "0")} listed
+            {protocols.length.toString().padStart(2, "0")} listed
           </div>
         </div>
       </header>
@@ -38,13 +45,14 @@ export function ProjectIndexPage({ onOpenProtocol }: Props) {
         <section>
           <h1 className="font-heading text-3xl tracking-tight">Featured projects</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Browse every DeFi protocol tracked on the globe. Open any project to
-            see live block flow, liquidity, and the networks it operates across.
+            {activeNetworkFilter
+              ? `Browse ${activeNetworkFilter.name} projects tracked on the globe. Open any project to see live block flow, liquidity, and connected networks.`
+              : "Browse every DeFi protocol tracked on the globe. Open any project to see live block flow, liquidity, and the networks it operates across."}
           </p>
         </section>
 
         <section className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {PROTOCOLS.map((protocol) => {
+          {protocols.map((protocol) => {
             const visibleNetworks = protocol.networks.slice(0, VISIBLE_NETWORKS);
             const overflow = protocol.networks.length - visibleNetworks.length;
             return (

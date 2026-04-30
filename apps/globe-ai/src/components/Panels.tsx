@@ -5,6 +5,7 @@ import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
 import { fmtCompact, fmtUsd } from "@/lib/format";
+import { type Network } from "@/lib/networks";
 import type { BlockEntry } from "@/lib/use-block-stream";
 
 type BlockPanelProps = {
@@ -13,8 +14,9 @@ type BlockPanelProps = {
 };
 
 type MarketPanelProps = {
-  protocolCount: number;
   compact?: boolean;
+  network?: Network | null;
+  protocolCount: number;
 };
 
 type BlockPreview = {
@@ -147,7 +149,7 @@ function BlockHoverCard({ preview }: { preview: BlockPreview }) {
   );
 }
 
-export function MarketMetricsPanel({ protocolCount, compact }: MarketPanelProps) {
+export function MarketMetricsPanel({ protocolCount, compact, network }: MarketPanelProps) {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -176,12 +178,12 @@ export function MarketMetricsPanel({ protocolCount, compact }: MarketPanelProps)
       <div className="panel-footer">
         <span className="network-footer-label">
           <img
-            src="/network-logos/solana.svg"
+            src={network?.logo ?? "/network-logos/solana.svg"}
             alt=""
             className="network-logo network-logo-img"
             aria-hidden="true"
           />
-          Mainnet
+          {network ? network.name : "Mainnet"}
         </span>
         <strong>24h rolling</strong>
       </div>

@@ -47,16 +47,19 @@ import {
 } from "@orbit/ui/table";
 import { toastManager } from "@orbit/ui/toast";
 import dustyFieldSrc from "../../../../packages/ui/src/assets/figures/dusty-field.png";
+import { PROTOCOLS } from "@/lib/protocols";
 import {
   type AllocationKind,
   type DefiGroupKind,
+  type PortfolioMock,
   formatPct,
   formatUsd,
   formatUsdCompact,
   formatUsdDelta,
-  PORTFOLIO_MOCK,
+  getPortfolioMockForNetwork,
   shortenAddress,
 } from "@/lib/portfolio-mock";
+import type { Network } from "@/lib/networks";
 
 function copyToClipboard(value: string) {
   if (typeof navigator === "undefined" || !navigator.clipboard) return;
@@ -394,7 +397,7 @@ type SampleWallet = {
   accent: string;
 };
 
-const SAMPLE_WALLETS: SampleWallet[] = [
+const SOLANA_SAMPLE_WALLETS: SampleWallet[] = [
   {
     label: "Jupiter treasury",
     hint: "DEX aggregator",
@@ -417,6 +420,77 @@ const SAMPLE_WALLETS: SampleWallet[] = [
     accent: "var(--chart-5)",
   },
 ];
+
+const SUI_SAMPLE_WALLETS: SampleWallet[] = [
+  {
+    label: "NAVI lender",
+    hint: "Lending market",
+    address: "0x3a12d9c7f48b1e6a9d02f6c48a13eaf56b821c9d40e5f72a6c1890b7a5d2c9ef",
+    icon: LandmarkIcon,
+    accent: "var(--chart-1)",
+  },
+  {
+    label: "Suilend whale",
+    hint: "Money market",
+    address: "0x8f4e1c6b9a2d3750e1b4f68a93c7d52e04f9a6b1c8d3e572f0a4c91b6d8e23a",
+    icon: WavesIcon,
+    accent: "var(--chart-3)",
+  },
+  {
+    label: "Cetus LP",
+    hint: "DEX liquidity",
+    address: "0xc7b2a60d91e43f8a2c5d7b0e16f94a83d527c0b6e9f14a38d20c5b7e61f9a04d",
+    icon: GemIcon,
+    accent: "var(--chart-5)",
+  },
+];
+
+const SAMPLE_WALLETS_BY_NETWORK: Record<string, SampleWallet[]> = {
+  solana: SOLANA_SAMPLE_WALLETS,
+  sui: SUI_SAMPLE_WALLETS,
+};
+
+function mockAddressForNetwork(network: Network, index: number) {
+  if (network.evmCompatible) {
+    const seed = (network.id + index).replace(/[^a-f0-9]/gi, "");
+    return `0x${(seed + "0123456789abcdef".repeat(3)).slice(0, 40)}`;
+  }
+
+  return `${network.symbol}${index + 1}MockWallet${network.id.replace(/[^a-z0-9]/gi, "")}Address9xQp7Lm2T`;
+}
+
+function sampleWalletsForNetwork(network: Network | null): SampleWallet[] {
+  if (!network) return SOLANA_SAMPLE_WALLETS;
+  const explicit = SAMPLE_WALLETS_BY_NETWORK[network.id];
+  if (explicit) return explicit;
+
+  const protocols = PROTOCOLS.filter((protocol) =>
+    protocol.networks.some((name) => name.toLowerCase() === network.name.toLowerCase()),
+  ).slice(0, 3);
+  const fallbackLabels = [
+    { label: `${network.name} treasury`, hint: `${network.symbol} holdings`, icon: GemIcon },
+    { label: `${network.name} validator`, hint: "Staking wallet", icon: WavesIcon },
+    { label: `${network.name} vault`, hint: "DeFi position", icon: LandmarkIcon },
+  ];
+
+  return Array.from({ length: 3 }, (_, index) => {
+    const protocol = protocols[index];
+    const fallback = fallbackLabels[index];
+    return {
+      label: protocol ? `${protocol.name} wallet` : fallback.label,
+      hint: protocol ? protocol.category : fallback.hint,
+      address: mockAddressForNetwork(network, index),
+      icon: protocol
+        ? protocol.category === "Lending"
+          ? LandmarkIcon
+          : protocol.category === "Staking"
+            ? WavesIcon
+            : GemIcon
+        : fallback.icon,
+      accent: `var(--chart-${(index % 5) + 1})`,
+    };
+  });
+}
 
 function PortfolioEmptyBackground() {
   const typingImpulse = useRef(0);
@@ -520,8 +594,12 @@ function SampleWalletCard({
 }
 
 function PortfolioEmptyState({
+  networkName,
+  sampleWallets,
   onSubmitAddress,
 }: {
+  networkName: string;
+  sampleWallets: SampleWallet[];
   onSubmitAddress: (address: string) => void;
 }) {
   return (
@@ -542,7 +620,7 @@ function PortfolioEmptyState({
             Inspect any wallet.
           </EmptyTitle>
           <EmptyDescription className="max-w-md text-balance text-[15px]/6">
-            Enter a Solana address for balances, DeFi positions, and protocol
+            Enter a {networkName} address for balances, DeFi positions, and protocol
             exposure in one view.
           </EmptyDescription>
         </EmptyHeader>
@@ -560,7 +638,7 @@ function PortfolioEmptyState({
           </div>
 
           <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
-            {SAMPLE_WALLETS.map((wallet) => (
+            {sampleWallets.map((wallet) => (
               <SampleWalletCard
                 key={wallet.address}
                 wallet={wallet}
@@ -574,14 +652,20 @@ function PortfolioEmptyState({
   );
 }
 
-function NetWorthAndAllocation() {
+function NetWorthAndAllocation({
+  networkName,
+  portfolio,
+}: {
+  networkName: string;
+  portfolio: PortfolioMock;
+}) {
   const [allocationKind, setAllocationKind] = useState<AllocationKind>("tokens");
   const [range, setRange] = useState("1D");
-  const spotValue = PORTFOLIO_MOCK.tokens.reduce(
+  const spotValue = portfolio.tokens.reduce(
     (acc, token) => acc + token.usdValue,
     0,
   );
-  const defiValue = PORTFOLIO_MOCK.defiAllocation.reduce(
+  const defiValue = portfolio.defiAllocation.reduce(
     (acc, item) => acc + item.usdValue,
     0,
   );
@@ -592,14 +676,14 @@ function NetWorthAndAllocation() {
 
   const slices =
     allocationKind === "tokens"
-      ? PORTFOLIO_MOCK.tokens.map((t) => ({
+      ? portfolio.tokens.map((t) => ({
           key: t.symbol,
           logoSrc: TOKEN_LOGOS[t.symbol],
           name: t.symbol,
           value: t.usdValue,
           color: t.color,
         }))
-      : PORTFOLIO_MOCK.defiAllocation.map((a) => ({
+      : portfolio.defiAllocation.map((a) => ({
           key: a.protocolId,
           logoSrc: PROTOCOL_LOGOS[a.protocolId],
           name: a.name,
@@ -607,7 +691,7 @@ function NetWorthAndAllocation() {
           color: a.color,
         }));
 
-  const negative = PORTFOLIO_MOCK.netWorthChange24h < 0;
+  const negative = portfolio.netWorthChange24h < 0;
 
   return (
     <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border/60 bg-border/60 shadow-[0_28px_70px_-54px_rgb(0_0_0/0.9)] backdrop-blur-xl lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -617,12 +701,12 @@ function NetWorthAndAllocation() {
             <div className="flex items-baseline gap-2">
               <span className="font-heading text-2xl">Wallet</span>
               <span className="font-mono text-muted-foreground text-xs uppercase tracking-[0.2em]">
-                Solana holdings
+                {networkName} holdings
               </span>
             </div>
             <div className="mt-2 flex flex-wrap items-baseline gap-3">
               <span className="font-mono text-5xl tracking-tight tabular-nums">
-                ${PORTFOLIO_MOCK.netWorth.toFixed(2)}
+                ${portfolio.netWorth.toFixed(2)}
               </span>
               <span
                 className={
@@ -637,11 +721,11 @@ function NetWorthAndAllocation() {
                 ) : (
                   <ArrowUpRightIcon className="size-4 shrink-0" />
                 )}
-                {formatPct(PORTFOLIO_MOCK.netWorthChangePct24h)}
+                {formatPct(portfolio.netWorthChangePct24h)}
               </span>
             </div>
             <div className="mt-1 font-mono text-muted-foreground text-xs tabular-nums">
-              {formatUsdDelta(PORTFOLIO_MOCK.netWorthChange24h)} today · spot{" "}
+              {formatUsdDelta(portfolio.netWorthChange24h)} today · spot{" "}
               {formatUsdCompact(spotValue)} · DeFi {formatUsdCompact(defiValue)}
             </div>
           </div>
@@ -740,7 +824,7 @@ function NetWorthAndAllocation() {
               Net worth
             </div>
             <div className="mt-1 font-mono text-sm tabular-nums">
-              ${PORTFOLIO_MOCK.netWorth.toFixed(2)}
+              ${portfolio.netWorth.toFixed(2)}
             </div>
           </div>
           <div className="bg-background/72 p-3">
@@ -755,7 +839,7 @@ function NetWorthAndAllocation() {
                   : "text-emerald-600 dark:text-emerald-400")
               }
             >
-              {formatPct(PORTFOLIO_MOCK.netWorthChangePct24h)}
+              {formatPct(portfolio.netWorthChangePct24h)}
             </div>
           </div>
         </div>
@@ -779,26 +863,32 @@ function PortfolioStripCard({
   );
 }
 
-function ProtocolStripRow() {
+function ProtocolStripRow({
+  networkSymbol,
+  portfolio,
+}: {
+  networkSymbol: string;
+  portfolio: PortfolioMock;
+}) {
   return (
     <div className="scrollbar-none -mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1">
       <PortfolioStripCard
-        logo={<TokenLogo symbol="SOL" shape="square" className="size-11 rounded-xl" />}
+        logo={<TokenLogo symbol={networkSymbol} shape="square" className="size-11 rounded-xl" />}
       >
           <div className="truncate font-mono text-[11px] text-foreground uppercase tracking-[0.18em]">
             Holdings
           </div>
           <div className="mt-1 font-mono text-[13px] text-muted-foreground tabular-nums">
-            {formatUsdCompact(PORTFOLIO_MOCK.holdingsTotal)}
+            {formatUsdCompact(portfolio.holdingsTotal)}
           </div>
       </PortfolioStripCard>
-      {PORTFOLIO_MOCK.defiPositions.map((p) => (
+      {portfolio.defiPositions.map((p) => (
         <PortfolioStripCard
           key={p.protocolId}
           logo={
             <ProtocolLogo
               color={
-                PORTFOLIO_MOCK.defiAllocation.find(
+                portfolio.defiAllocation.find(
                   (a) => a.protocolId === p.protocolId,
                 )?.color
               }
@@ -870,8 +960,8 @@ function PortfolioDeltaPill({ value }: { value: number }) {
   );
 }
 
-function HoldingsSection() {
-  const spotTotal = PORTFOLIO_MOCK.tokens.reduce(
+function HoldingsSection({ portfolio }: { portfolio: PortfolioMock }) {
+  const spotTotal = portfolio.tokens.reduce(
     (acc, token) => acc + token.usdValue,
     0,
   );
@@ -883,7 +973,7 @@ function HoldingsSection() {
           Holdings
         </div>
         <span className="inline-flex h-6 items-center rounded-full border border-border/60 bg-muted/35 px-2.5 font-mono text-[11px] text-muted-foreground tabular-nums">
-          {PORTFOLIO_MOCK.tokens.length} assets
+          {portfolio.tokens.length} assets
         </span>
       </header>
       <div className="scrollbar-none overflow-x-auto">
@@ -911,7 +1001,7 @@ function HoldingsSection() {
             </TableRow>
           </TableHeader>
           <TableBody className="[&_tr]:border-border/60">
-            {PORTFOLIO_MOCK.tokens.map((token) => (
+            {portfolio.tokens.map((token) => (
               <TableRow
                 key={token.symbol}
                 className="transition-colors hover:bg-muted/40"
@@ -967,10 +1057,10 @@ function HoldingsSection() {
   );
 }
 
-function DefiPositionsSection() {
+function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
   const allProtocolIds = useMemo(
-    () => PORTFOLIO_MOCK.defiPositions.map((p) => p.protocolId),
-    [],
+    () => portfolio.defiPositions.map((p) => p.protocolId),
+    [portfolio],
   );
 
   return (
@@ -980,7 +1070,7 @@ function DefiPositionsSection() {
           DeFi positions
         </div>
         <span className="inline-flex h-6 items-center rounded-full border border-border/60 bg-muted/35 px-2.5 font-mono text-[11px] text-muted-foreground tabular-nums">
-          {PORTFOLIO_MOCK.defiPositions.length} protocols
+          {portfolio.defiPositions.length} protocols
         </span>
       </header>
       <div className="scrollbar-none overflow-x-auto">
@@ -994,8 +1084,8 @@ function DefiPositionsSection() {
             <div />
           </div>
           <Accordion multiple defaultValue={allProtocolIds}>
-            {PORTFOLIO_MOCK.defiPositions.map((protocol) => {
-              const color = PORTFOLIO_MOCK.defiAllocation.find(
+            {portfolio.defiPositions.map((protocol) => {
+              const color = portfolio.defiAllocation.find(
                 (a) => a.protocolId === protocol.protocolId,
               )?.color;
               const rowCount = protocol.groups.reduce(
@@ -1163,14 +1253,20 @@ function DefiPositionsSection() {
 }
 
 export function PortfolioPage({
+  activeNetworkFilter,
   walletAddress,
   onClearWallet,
   onOpenWallet,
 }: {
+  activeNetworkFilter: Network | null;
   walletAddress: string | null;
   onClearWallet: () => void;
   onOpenWallet: (address: string) => void;
 }) {
+  const portfolio = getPortfolioMockForNetwork(activeNetworkFilter?.id);
+  const networkName = activeNetworkFilter?.name ?? "Solana";
+  const networkSymbol = activeNetworkFilter?.symbol ?? "SOL";
+  const sampleWallets = sampleWalletsForNetwork(activeNetworkFilter);
   const handleSubmit = useCallback(
     (next: string) => {
       onOpenWallet(next);
@@ -1188,7 +1284,11 @@ export function PortfolioPage({
       {walletAddress === null ? (
         <>
           <PortfolioEmptyBackground />
-          <PortfolioEmptyState onSubmitAddress={handleSubmit} />
+          <PortfolioEmptyState
+            networkName={networkName}
+            sampleWallets={sampleWallets}
+            onSubmitAddress={handleSubmit}
+          />
         </>
       ) : (
         <>
@@ -1205,10 +1305,10 @@ export function PortfolioPage({
               >
                 <ArrowUpRightIcon className="-rotate-[135deg]" />
               </Button>
-              <TokenLogo symbol="SOL" className="size-9" />
+              <TokenLogo symbol={networkSymbol} className="size-9" />
               <div>
                 <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.22em]">
-                  Solana wallet
+                  {networkName} wallet
                 </div>
                 <div className="font-mono text-sm tabular-nums">
                   {shortenAddress(walletAddress)}
@@ -1229,17 +1329,17 @@ export function PortfolioPage({
           </div>
 
           <div className="mt-6">
-            <NetWorthAndAllocation />
+            <NetWorthAndAllocation networkName={networkName} portfolio={portfolio} />
           </div>
 
-          <ProtocolStripRow />
+          <ProtocolStripRow networkSymbol={networkSymbol} portfolio={portfolio} />
 
           <div className="mt-4">
-            <HoldingsSection />
+            <HoldingsSection portfolio={portfolio} />
           </div>
 
           <div className="mt-4">
-            <DefiPositionsSection />
+            <DefiPositionsSection portfolio={portfolio} />
           </div>
         </main>
         </>

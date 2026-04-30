@@ -1,4 +1,6 @@
 import { chartColor } from "@orbit/ui/patterns/charts/chart";
+import { NETWORKS, type Network } from "./networks";
+import { PROTOCOLS } from "./protocols";
 
 export const RECENT_WALLETS_STORAGE_KEY = "globe-ai:recent-wallets";
 export const MAX_RECENT_WALLETS = 5;
@@ -48,6 +50,16 @@ export type DefiAllocationSlice = {
   name: string;
   usdValue: number;
   color: string;
+};
+
+export type PortfolioMock = {
+  netWorth: number;
+  netWorthChange24h: number;
+  netWorthChangePct24h: number;
+  holdingsTotal: number;
+  tokens: TokenHolding[];
+  defiPositions: DefiProtocolBlock[];
+  defiAllocation: DefiAllocationSlice[];
 };
 
 const TOKENS: TokenHolding[] = [
@@ -329,7 +341,7 @@ const DEFI_ALLOCATION: DefiAllocationSlice[] = DEFI_POSITIONS.map((p, i) => ({
 
 const HOLDINGS_TOTAL = 14_420;
 
-export const PORTFOLIO_MOCK = {
+export const PORTFOLIO_MOCK: PortfolioMock = {
   netWorth: 678.96,
   netWorthChange24h: -4.93,
   netWorthChangePct24h: -0.7,
@@ -338,6 +350,118 @@ export const PORTFOLIO_MOCK = {
   defiPositions: DEFI_POSITIONS,
   defiAllocation: DEFI_ALLOCATION,
 };
+
+function networkProtocolMatches(network: Network) {
+  return PROTOCOLS.filter((protocol) =>
+    protocol.networks.some((name) => name.toLowerCase() === network.name.toLowerCase()),
+  );
+}
+
+function categoryToDefiKind(category: string): DefiGroupKind {
+  if (category === "Lending") return "Lending";
+  if (category === "Staking") return "Staking";
+  return "Liquidity";
+}
+
+function buildNetworkPortfolio(network: Network, index: number): PortfolioMock {
+  if (network.id === "solana") return PORTFOLIO_MOCK;
+
+  const protocols = networkProtocolMatches(network).slice(0, 3);
+  const nativeValue = 860 + index * 420;
+  const stableValue = 520 + index * 210;
+  const protocolValue = 240 + protocols.length * 175 + index * 60;
+  const tokens: TokenHolding[] = [
+    {
+      symbol: network.symbol,
+      name: `${network.name} ${network.symbol}`,
+      balanceLabel: `${(nativeValue / Math.max(1, 30 + index * 4)).toFixed(3)} ${network.symbol}`,
+      usdValue: nativeValue,
+      usdValueChange24h: 3.2 - index * 0.22,
+      usdValueChangePct24h: 0.24 + index * 0.03,
+      price: Math.max(1, 30 + index * 4),
+      priceChangePct24h: 0.24 + index * 0.03,
+      color: chartColor(0),
+    },
+    {
+      symbol: "USDC",
+      name: "USD Coin",
+      balanceLabel: `${stableValue.toFixed(2)} USDC`,
+      usdValue: stableValue,
+      usdValueChange24h: -0.08,
+      usdValueChangePct24h: -0.01,
+      price: 1,
+      priceChangePct24h: -0.01,
+      color: chartColor(1),
+    },
+    {
+      symbol: protocols[0]?.symbol ?? network.symbol,
+      name: protocols[0]?.name ?? `${network.name} ecosystem`,
+      balanceLabel: `${(protocolValue / Math.max(0.5, 4 + index)).toFixed(2)} ${protocols[0]?.symbol ?? network.symbol}`,
+      usdValue: protocolValue,
+      usdValueChange24h: 1.4 + index * 0.18,
+      usdValueChangePct24h: 0.52 + index * 0.05,
+      price: Math.max(0.5, 4 + index),
+      priceChangePct24h: 0.52 + index * 0.05,
+      color: chartColor(2),
+    },
+  ];
+
+  const defiPositions: DefiProtocolBlock[] = protocols.map((protocol, protocolIndex) => {
+    const totalValue = 980 + index * 260 + protocolIndex * 430;
+    const kind = categoryToDefiKind(protocol.category);
+    return {
+      protocolId: protocol.id,
+      protocolName: protocol.name.toUpperCase(),
+      protocolHref: protocol.website ?? "#",
+      totalValue,
+      groups: [
+        {
+          kind,
+          walletShort: `${network.symbol.slice(0, 3)}${index}...${protocol.id.slice(0, 4)}`,
+          value: totalValue,
+          rows: [
+            {
+              asset: `${network.symbol} — USDC`,
+              balance: `${(totalValue / Math.max(1, 25 + index)).toFixed(4)} ${network.symbol}`,
+              altBalance: `${(totalValue * 0.36).toFixed(2)} USDC`,
+              usd: totalValue,
+              usdChange24h: 2.1 + protocolIndex * 0.34,
+              usdChangePct24h: 0.18 + protocolIndex * 0.07,
+              yieldLabel: kind === "Staking" ? "6.8% APY" : "14.2% APR",
+            },
+          ],
+        },
+      ],
+    };
+  });
+
+  const defiAllocation = defiPositions.map((position, allocationIndex) => ({
+    protocolId: position.protocolId,
+    name: position.protocolName,
+    usdValue: position.totalValue,
+    color: chartColor(allocationIndex),
+  }));
+  const holdingsTotal = tokens.reduce((total, token) => total + token.usdValue, 0);
+  const defiTotal = defiAllocation.reduce((total, allocation) => total + allocation.usdValue, 0);
+  const netWorth = holdingsTotal + defiTotal;
+
+  return {
+    netWorth,
+    netWorthChange24h: 8.4 + index,
+    netWorthChangePct24h: 0.42 + index * 0.03,
+    holdingsTotal,
+    tokens,
+    defiPositions,
+    defiAllocation,
+  };
+}
+
+export const PORTFOLIO_MOCK_BY_NETWORK: Record<string, PortfolioMock> =
+  Object.fromEntries(NETWORKS.map((network, index) => [network.id, buildNetworkPortfolio(network, index)]));
+
+export function getPortfolioMockForNetwork(networkId: string | null | undefined) {
+  return networkId ? (PORTFOLIO_MOCK_BY_NETWORK[networkId] ?? PORTFOLIO_MOCK) : PORTFOLIO_MOCK;
+}
 
 export function shortenAddress(addr: string): string {
   const trimmed = addr.trim();

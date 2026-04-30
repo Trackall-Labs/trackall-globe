@@ -13,6 +13,7 @@ import { Card } from "@orbit/ui/card";
 import { toastManager } from "@orbit/ui/toast";
 import { AppHeader, type AppHeaderRoute } from "./components/AppHeader";
 import { GlobeScene } from "./components/GlobeScene";
+import { NetworkFilterChip } from "./components/NetworkFilterChip";
 import { NetworkIndexPage } from "./components/NetworkIndexPage";
 import { BlockHistoryPanel, MarketMetricsPanel, MobilePanelTabs } from "./components/Panels";
 import { NetworkPage } from "./components/NetworkPage";
@@ -30,9 +31,13 @@ import {
   isAnyNetworkPath,
   isNetworkIndexPath,
   isNetworkPath,
-  navigateToNetwork,
-  navigateToNetworkIndex,
 } from "./lib/network-route";
+import {
+  getCurrentRoute,
+  getNetworkFilterFromRoute,
+  pathWithNetworkFilter,
+  routePathname,
+} from "./lib/network-filter";
 import { PROTOCOLS } from "./lib/protocols";
 import {
   getProtocolFromPath,
@@ -41,11 +46,6 @@ import {
   isPortfolioPath,
   isProjectIndexPath,
   isProtocolPath,
-  navigateToGlobe,
-  navigateToPortfolio,
-  navigateToPortfolioAddress,
-  navigateToProjectIndex,
-  navigateToProtocol,
 } from "./lib/protocol-route";
 import type { Protocol, WalletPin } from "./lib/types";
 import { useBlockStream } from "./lib/use-block-stream";
@@ -143,10 +143,15 @@ function shortHash(hash: string) {
   return `${hash.slice(0, 6)}...${hash.slice(-4)}`;
 }
 
-function buildMockActivityEvent(index: number): MockActivityEvent {
-  const protocol = pickMockItem(PROTOCOLS, index * 2);
+function buildMockActivityEvent(
+  index: number,
+  protocols: readonly Protocol[],
+  networkFilter: Network | null,
+): MockActivityEvent | null {
+  if (protocols.length === 0) return null;
+  const protocol = pickMockItem(protocols, index * 2);
   const networkName = pickMockItem(protocol.networks.length > 0 ? protocol.networks : ["Ethereum"], index);
-  const network = NETWORKS.find((item) => item.name === networkName) ?? pickMockItem(NETWORKS, index);
+  const network = networkFilter ?? NETWORKS.find((item) => item.name === networkName) ?? pickMockItem(NETWORKS, index);
   const wallet = pickMockItem(MOCK_WHALE_WALLETS, index);
   const amount = compactUsd(randomBetween(1_200_000, 24_000_000));
   const flow = compactUsd(randomBetween(800_000, 9_500_000));
@@ -302,7 +307,12 @@ function renderMockActivityToast(
   };
 }
 
-function useMockGlobeActivity(enabled: boolean, handlers: MockActivityHandlers) {
+function useMockGlobeActivity(
+  enabled: boolean,
+  handlers: MockActivityHandlers,
+  networkFilter: Network | null,
+  protocols: readonly Protocol[],
+) {
   const eventIndexRef = useRef(0);
 
   useEffect(() => {
@@ -313,12 +323,10 @@ function useMockGlobeActivity(enabled: boolean, handlers: MockActivityHandlers) 
 
     const emitActivity = () => {
       const toastId = `globe-activity-${Date.now()}-${eventIndexRef.current}`;
-      const event = renderMockActivityToast(
-        buildMockActivityEvent(eventIndexRef.current),
-        toastId,
-        handlers,
-      );
+      const activity = buildMockActivityEvent(eventIndexRef.current, protocols, networkFilter);
       eventIndexRef.current += 1;
+      if (!activity) return;
+      const event = renderMockActivityToast(activity, toastId, handlers);
       toastManager.add({
         description: event.description,
         id: toastId,
@@ -357,7 +365,7 @@ function useMockGlobeActivity(enabled: boolean, handlers: MockActivityHandlers) 
       timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       timeoutIds.clear();
     };
-  }, [enabled, handlers]);
+  }, [enabled, handlers, networkFilter, protocols]);
 }
 
 function useCompactLayout() {
@@ -521,8 +529,7 @@ export function App() {
   const [pinMode, setPinMode] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<SelectedCountry | null>(null);
   const [routePath, setRoutePath] = useState(() => {
-    if (typeof window === "undefined") return "/";
-    return window.location.pathname;
+    return getCurrentRoute();
   });
   const [pins, setPins] = useState<WalletPin[]>([]);
   const [mobilePanel, setMobilePanel] = useState<"blocks" | "markets" | null>(null);
@@ -530,24 +537,37 @@ export function App() {
   const [protocolPreviewAnchor, setProtocolPreviewAnchor] = useState<PreviewAnchor | null>(null);
   const protocolPreviewCloseRef = useRef<number | null>(null);
   const protocolPreviewHoverRef = useRef(false);
-  const activeProtocol = useMemo(() => getProtocolFromPath(routePath), [routePath]);
-  const activeProtocolId = useMemo(() => getProtocolIdFromPath(routePath), [routePath]);
-  const protocolRouteActive = isProtocolPath(routePath);
-  const activeNetwork = useMemo(() => getNetworkFromPath(routePath), [routePath]);
-  const activeNetworkId = useMemo(() => getNetworkIdFromPath(routePath), [routePath]);
-  const networkIndexRouteActive = isNetworkIndexPath(routePath);
-  const networkRouteActive = isNetworkPath(routePath);
-  const anyNetworkRouteActive = isAnyNetworkPath(routePath);
-  const projectIndexRouteActive = isProjectIndexPath(routePath);
-  const portfolioRouteActive = isPortfolioPath(routePath);
-  const portfolioAddress = useMemo(() => getPortfolioAddressFromPath(routePath), [routePath]);
-  const homeRouteActive = routePath === "/";
+  const currentPathname = useMemo(() => routePathname(routePath), [routePath]);
+  const activeNetworkFilter = useMemo(() => getNetworkFilterFromRoute(routePath), [routePath]);
+  const activeProtocol = useMemo(() => getProtocolFromPath(currentPathname), [currentPathname]);
+  const activeProtocolId = useMemo(() => getProtocolIdFromPath(currentPathname), [currentPathname]);
+  const protocolRouteActive = isProtocolPath(currentPathname);
+  const activeNetwork = useMemo(() => getNetworkFromPath(currentPathname), [currentPathname]);
+  const activeNetworkId = useMemo(() => getNetworkIdFromPath(currentPathname), [currentPathname]);
+  const networkIndexRouteActive = isNetworkIndexPath(currentPathname);
+  const networkRouteActive = isNetworkPath(currentPathname);
+  const anyNetworkRouteActive = isAnyNetworkPath(currentPathname);
+  const projectIndexRouteActive = isProjectIndexPath(currentPathname);
+  const portfolioRouteActive = isPortfolioPath(currentPathname);
+  const portfolioAddress = useMemo(() => getPortfolioAddressFromPath(currentPathname), [currentPathname]);
+  const homeRouteActive = currentPathname === "/";
+  const filteredProtocols = useMemo(() => {
+    if (!activeNetworkFilter) return PROTOCOLS;
+    return PROTOCOLS.filter((protocol) =>
+      protocol.networks.some((network) => network.toLowerCase() === activeNetworkFilter.name.toLowerCase()),
+    );
+  }, [activeNetworkFilter]);
 
   useEffect(() => {
-    const updateRoute = () => setRoutePath(window.location.pathname);
+    const updateRoute = () => setRoutePath(getCurrentRoute());
     window.addEventListener("popstate", updateRoute);
     return () => window.removeEventListener("popstate", updateRoute);
   }, []);
+
+  const pushRoute = useCallback((pathname: string, networkId: string | null = activeNetworkFilter?.id ?? null) => {
+    window.history.pushState(null, "", pathWithNetworkFilter(pathname, networkId));
+    setRoutePath(getCurrentRoute());
+  }, [activeNetworkFilter]);
 
   const handleCountrySelected = useCallback((country: string, feature: CountryFeature) => {
     setSelectedCountry({ country, feature });
@@ -559,14 +579,13 @@ export function App() {
   }, []);
 
   const handleProtocolSelected = useCallback((protocol: Protocol) => {
-    navigateToProtocol(protocol.id);
-    setRoutePath(window.location.pathname);
+    pushRoute(`/protocol/${encodeURIComponent(protocol.id)}`);
     setSelectedProtocol(null);
     setProtocolPreviewAnchor(null);
     setPinMode(false);
     setSelectedCountry(null);
     setMobilePanel(null);
-  }, []);
+  }, [pushRoute]);
 
   const handleProtocolPreviewChange = useCallback((protocol: Protocol | null, anchor?: PreviewAnchor) => {
     if (protocolPreviewCloseRef.current) {
@@ -612,68 +631,74 @@ export function App() {
   }, []);
 
   const handleOpenProtocol = useCallback((protocol: Protocol) => {
-    navigateToProtocol(protocol.id);
-    setRoutePath(window.location.pathname);
+    pushRoute(`/protocol/${encodeURIComponent(protocol.id)}`);
     setSelectedProtocol(null);
     setPinMode(false);
     setSelectedCountry(null);
     setMobilePanel(null);
-  }, []);
+  }, [pushRoute]);
 
   const handleOpenNetwork = useCallback((networkId: string) => {
-    navigateToNetwork(networkId);
-    setRoutePath(window.location.pathname);
+    pushRoute(`/network/${encodeURIComponent(networkId)}`, networkId);
     setSelectedProtocol(null);
     setPinMode(false);
     setSelectedCountry(null);
     setMobilePanel(null);
-  }, []);
+  }, [pushRoute]);
+
+  const handleFilterNetwork = useCallback((networkId: string) => {
+    pushRoute(currentPathname, networkId);
+    setSelectedProtocol(null);
+    setProtocolPreviewAnchor(null);
+    setPinMode(false);
+    setSelectedCountry(null);
+    setMobilePanel(null);
+  }, [currentPathname, pushRoute]);
+
+  const handleClearNetworkFilter = useCallback(() => {
+    pushRoute(currentPathname, null);
+  }, [currentPathname, pushRoute]);
 
   const handleBackToGlobe = useCallback(() => {
-    navigateToGlobe();
-    setRoutePath(window.location.pathname);
+    pushRoute("/");
     setSelectedProtocol(null);
-  }, []);
+  }, [pushRoute]);
 
   const handleNavigateNetworks = useCallback(() => {
-    navigateToNetworkIndex();
-    setRoutePath(window.location.pathname);
+    pushRoute("/networks");
     setSelectedProtocol(null);
     setProtocolPreviewAnchor(null);
     setPinMode(false);
     setSelectedCountry(null);
     setMobilePanel(null);
-  }, []);
+  }, [pushRoute]);
 
   const handleNavigateProjects = useCallback(() => {
-    navigateToProjectIndex();
-    setRoutePath(window.location.pathname);
+    pushRoute("/projects");
     setSelectedProtocol(null);
     setProtocolPreviewAnchor(null);
     setPinMode(false);
     setSelectedCountry(null);
     setMobilePanel(null);
-  }, []);
+  }, [pushRoute]);
 
   const handleNavigatePortfolio = useCallback(() => {
-    navigateToPortfolio();
-    setRoutePath(window.location.pathname);
+    pushRoute("/portfolio");
     setSelectedProtocol(null);
     setProtocolPreviewAnchor(null);
     setPinMode(false);
     setSelectedCountry(null);
     setMobilePanel(null);
-  }, []);
+  }, [pushRoute]);
 
   const handleOpenPortfolioAddress = useCallback((address: string) => {
-    navigateToPortfolioAddress(address);
-    setRoutePath(window.location.pathname);
+    pushRoute(`/portfolio/${encodeURIComponent(address)}`);
     setSelectedProtocol(null);
     setProtocolPreviewAnchor(null);
     setPinMode(false);
     setSelectedCountry(null);
     setMobilePanel(null);
-  }, []);
+  }, [pushRoute]);
 
   const activeHeaderRoute: AppHeaderRoute = homeRouteActive
     ? "home"
@@ -696,7 +721,7 @@ export function App() {
     [handleOpenNetwork, handleOpenProtocol],
   );
 
-  useMockGlobeActivity(routePath === "/", activityHandlers);
+  useMockGlobeActivity(homeRouteActive, activityHandlers, activeNetworkFilter, filteredProtocols);
 
   return (
     <main className="app-shell">
@@ -711,9 +736,13 @@ export function App() {
         onNavigatePortfolio={handleNavigatePortfolio}
       />
 
+      {activeNetworkFilter ? (
+        <NetworkFilterChip network={activeNetworkFilter} onClear={handleClearNetworkFilter} />
+      ) : null}
+
       <GlobeScene
         active={homeRouteActive}
-        protocols={PROTOCOLS}
+        protocols={filteredProtocols}
         pins={pins}
         pinMode={pinMode}
         onCountrySelected={handleCountrySelected}
@@ -732,19 +761,26 @@ export function App() {
           />
         ) : portfolioRouteActive ? (
           <PortfolioPage
+            activeNetworkFilter={activeNetworkFilter}
             walletAddress={portfolioAddress}
             onClearWallet={handleNavigatePortfolio}
             onOpenWallet={handleOpenPortfolioAddress}
           />
         ) : projectIndexRouteActive ? (
           <ProjectIndexPage
+            activeNetworkFilter={activeNetworkFilter}
+            protocols={filteredProtocols}
             onOpenProtocol={(protocolId) => {
               const protocol = PROTOCOLS.find((item) => item.id === protocolId);
               if (protocol) handleOpenProtocol(protocol);
             }}
           />
         ) : networkIndexRouteActive ? (
-          <NetworkIndexPage onOpenNetwork={handleOpenNetwork} />
+          <NetworkIndexPage
+            activeNetworkFilter={activeNetworkFilter}
+            onFilterNetwork={handleFilterNetwork}
+            onOpenNetwork={handleOpenNetwork}
+          />
         ) : networkRouteActive ? (
           <NetworkPage
             network={activeNetwork}
@@ -800,7 +836,11 @@ export function App() {
               ) : null}
               {mobilePanel === "markets" ? (
                 <div className="mobile-panel-sheet">
-                  <MarketMetricsPanel protocolCount={PROTOCOLS.length} compact />
+                  <MarketMetricsPanel
+                    network={activeNetworkFilter}
+                    protocolCount={filteredProtocols.length}
+                    compact
+                  />
                 </div>
               ) : null}
               <MobilePanelTabs active={mobilePanel} onChange={setMobilePanel} />
@@ -808,7 +848,10 @@ export function App() {
           ) : (
             <>
               <BlockHistoryPanel blocks={blocks} />
-              <MarketMetricsPanel protocolCount={PROTOCOLS.length} />
+              <MarketMetricsPanel
+                network={activeNetworkFilter}
+                protocolCount={filteredProtocols.length}
+              />
             </>
           )}
 
