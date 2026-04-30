@@ -134,17 +134,17 @@ export function ProductPricingPage() {
 
         <section className="mt-8 overflow-hidden rounded-xl border border-border/60 bg-background/40">
           <div className="scrollbar-none overflow-x-auto">
-            <Table className="min-w-[860px] text-sm">
+            <Table className="min-w-[1040px] table-fixed text-sm">
               <TableHeader>
                 <TableRow className="border-border/60 bg-foreground/[0.02] hover:bg-foreground/[0.02]">
-                  <TableHead className="w-[28%] px-4 py-4 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
+                  <TableHead className="w-[40%] px-4 py-4 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
                     Plan
                   </TableHead>
                   {PLANS.map((plan) => (
                     <TableHead
                       key={plan.id}
                       className={
-                        "px-4 py-4 align-top whitespace-normal " +
+                        "w-[20%] px-4 py-4 align-top whitespace-normal " +
                         (plan.highlight ? "bg-foreground/[0.05]" : "")
                       }
                     >
@@ -164,7 +164,7 @@ export function ProductPricingPage() {
                           {plan.cadence}
                         </span>
                       </div>
-                      <div className="mt-2 max-w-44 whitespace-normal text-muted-foreground text-xs leading-5">
+                      <div className="mt-2 whitespace-normal text-muted-foreground text-xs leading-5">
                         {plan.blurb}
                       </div>
                     </TableHead>
@@ -203,12 +203,14 @@ export function ProductPricingPage() {
                   </Fragment>
                 ))}
                 <TableRow className="border-border/60 bg-foreground/[0.02] hover:bg-foreground/[0.02]">
-                  <TableCell className="px-4 py-4 text-muted-foreground text-xs">
+                  <TableCell
+                    className="px-4 py-4 whitespace-normal text-muted-foreground text-xs leading-5"
+                  >
                     Users are free. Projects are billed by metered API usage. Foundations
                     get custom infrastructure and limits.
                   </TableCell>
                   {PLANS.map((plan) => (
-                    <TableCell key={plan.id} className="px-4 py-4">
+                    <TableCell key={plan.id} className="px-4 py-4 align-middle">
                       <Button
                         type="button"
                         size="sm"
