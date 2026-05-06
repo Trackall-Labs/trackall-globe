@@ -94,6 +94,25 @@ export type TrackallSolanaPortfolioPlot = {
   points: TrackallSolanaPortfolioPlotPoint[];
 };
 
+export type TrackallTopWallet = {
+  rank: number;
+  address: string;
+  totalUsd: number;
+  positionCount: number;
+  capturedAt: string;
+};
+
+export type TrackallTopWalletsPlatform = {
+  platformId: string;
+  wallets: TrackallTopWallet[];
+};
+
+export type TrackallTopWalletsResponse = {
+  asOfRunId: number | null;
+  limit: number;
+  platforms: TrackallTopWalletsPlatform[];
+};
+
 const DEFAULT_TRACKALL_API_URL = "https://trackall.nightly.app/";
 const SOLANA_HUB = NETWORKS.find((network) => network.id === "solana") ?? NETWORKS[0]!;
 const API_REFRESH_MS = 60_000;
@@ -580,6 +599,61 @@ function parsePortfolioPlot(value: unknown): TrackallSolanaPortfolioPlot | null 
   };
 }
 
+function parseTopWallet(value: unknown): TrackallTopWallet | null {
+  if (!isRecord(value)) return null;
+  const rank = readNumber(value.rank);
+  const address = readString(value.address);
+  const totalUsd = readFiniteDecimalNumber(value.totalUsd);
+  const positionCount = readNumber(value.positionCount);
+  const capturedAt = readString(value.capturedAt);
+
+  if (
+    rank === null ||
+    !address ||
+    totalUsd === null ||
+    positionCount === null ||
+    !capturedAt ||
+    !Number.isFinite(Date.parse(capturedAt))
+  ) {
+    return null;
+  }
+
+  return {
+    address,
+    capturedAt: new Date(capturedAt).toISOString(),
+    positionCount,
+    rank,
+    totalUsd,
+  };
+}
+
+function parseTopWalletsPlatform(value: unknown): TrackallTopWalletsPlatform | null {
+  if (!isRecord(value)) return null;
+  const platformId = readString(value.platformId);
+  if (!platformId || !Array.isArray(value.wallets)) return null;
+
+  return {
+    platformId,
+    wallets: value.wallets
+      .map(parseTopWallet)
+      .filter((wallet): wallet is TrackallTopWallet => wallet !== null),
+  };
+}
+
+function parseTopWalletsResponse(value: unknown): TrackallTopWalletsResponse | null {
+  if (!isRecord(value) || !Array.isArray(value.platforms)) return null;
+  const limit = readNumber(value.limit);
+  if (limit === null) return null;
+
+  return {
+    asOfRunId: readNumber(value.asOfRunId),
+    limit,
+    platforms: value.platforms
+      .map(parseTopWalletsPlatform)
+      .filter((platform): platform is TrackallTopWalletsPlatform => platform !== null),
+  };
+}
+
 function requireApiKey(config: TrackallApiConfig) {
   const apiKey = config.apiKey?.trim();
   if (!apiKey) {
@@ -792,6 +866,25 @@ export async function fetchSolanaPortfolioPlot(
   }
 
   return plot;
+}
+
+export async function fetchSolanaTopPortfolioWallets(
+  platformId: string,
+  limit = 100,
+  config: TrackallApiConfig = {},
+  signal?: AbortSignal,
+): Promise<TrackallTopWalletsResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    platformId,
+  });
+  const data = await fetchTrackallJson(`api/solana/portfolio/top-wallets?${params.toString()}`, config, signal);
+  const result = parseTopWalletsResponse(data);
+  if (!result) {
+    throw new Error("Trackall API returned an invalid top wallets payload");
+  }
+
+  return result;
 }
 
 const TOKEN_METADATA_BATCH_SIZE = 20;

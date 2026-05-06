@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   ActivityIcon,
   ArrowDownIcon,
@@ -21,7 +21,6 @@ import { Area, AreaChart } from "recharts";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Checkbox } from "@orbit/ui/checkbox";
-import { Input } from "@orbit/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@orbit/ui/input-group";
 import { Avatar, AvatarFallback } from "@orbit/ui/avatar";
 import { Chart } from "@orbit/ui/patterns/charts";
@@ -32,24 +31,19 @@ import { nameToNetworkId } from "@/lib/networks";
 import { getPortfolioAddressPath } from "@/lib/protocol-route";
 import { formatProtocolLocation } from "@/lib/protocols";
 import {
-  ACTIVITY_WINDOWS,
+  fetchSolanaTopPortfolioWallets,
+  type TrackallTopWallet,
+} from "@/lib/trackall-api";
+import {
   PAGE_SIZE_OPTIONS,
-  RISK_TIERS,
-  USER_TYPES,
   buildProtocolDetailMock,
   formatDelta,
-  formatLastActive,
   formatNumber,
-  formatSignedUsd,
   formatUsd,
   shortWallet,
-  type ProtocolActivityWindow,
   type ProtocolChartPoint,
   type ProtocolDetailMetric,
   type ProtocolMetricKey,
-  type ProtocolRiskTier,
-  type ProtocolUserRow,
-  type ProtocolUserType,
 } from "@/lib/protocol-stats";
 import type { Protocol } from "@/lib/types";
 
@@ -61,15 +55,15 @@ type Props = {
   onOpenWallet: (address: string) => void;
 };
 
-type FilterValue = "all";
-type UserSortKey =
-  | "depositedTvl"
-  | "volume30d"
-  | "netFlow"
-  | "pnl"
-  | "lastActiveHours";
+type WalletSortKey = "rank" | "totalUsd" | "positionCount" | "capturedAt";
 type SortDirection = "asc" | "desc";
 type ChartRange = "7d" | "14d" | "30d";
+type WalletsState = {
+  asOfRunId: number | null;
+  error: string | null;
+  status: "idle" | "loading" | "ready" | "error";
+  wallets: TrackallTopWallet[];
+};
 
 const METRIC_KEYS = ["tvl", "volume", "users", "deposits"] as const;
 const CHART_RANGES: { key: ChartRange; label: string; size: number }[] = [
@@ -116,10 +110,6 @@ function axisValue(metric: ProtocolMetricKey, value: number) {
   return formatUsd(value).replace(".00", "");
 }
 
-function flowClass(value: number) {
-  return value < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400";
-}
-
 const WALLET_TONES = [
   "bg-violet-500/15 text-violet-600 dark:text-violet-300",
   "bg-sky-500/15 text-sky-600 dark:text-sky-300",
@@ -131,21 +121,62 @@ const WALLET_TONES = [
   "bg-orange-500/15 text-orange-600 dark:text-orange-300",
 ];
 
-const RISK_DOT: Record<string, string> = {
-  Low: "bg-emerald-500",
-  Medium: "bg-amber-500",
-  High: "bg-rose-500",
-};
-
 function walletTone(address: string) {
-  return WALLET_TONES[parseInt(address.slice(2, 4), 16) % WALLET_TONES.length] ?? WALLET_TONES[0]!;
+  let hash = 0;
+  for (let index = 0; index < address.length; index += 1) {
+    hash = Math.imul(hash ^ address.charCodeAt(index), 16777619);
+  }
+  return WALLET_TONES[(hash >>> 0) % WALLET_TONES.length] ?? WALLET_TONES[0]!;
 }
 
-function sortUsers(users: ProtocolUserRow[], key: UserSortKey, direction: SortDirection) {
-  return [...users].sort((a, b) => {
-    const result = a[key] - b[key];
+function sortWallets(wallets: TrackallTopWallet[], key: WalletSortKey, direction: SortDirection) {
+  return [...wallets].sort((a, b) => {
+    const result =
+      key === "capturedAt"
+        ? Date.parse(a.capturedAt) - Date.parse(b.capturedAt)
+        : a[key] - b[key];
     return direction === "asc" ? result : -result;
   });
+}
+
+function formatCapturedAt(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return date.toLocaleString("en-US", {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+  });
+}
+
+function csvCell(value: number | string | null) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function exportWalletRows(protocol: Protocol, wallets: TrackallTopWallet[], asOfRunId: number | null) {
+  const rows = [
+    ["rank", "address", "totalUsd", "positionCount", "capturedAt", "platformId", "asOfRunId"],
+    ...wallets.map((wallet) => [
+      String(wallet.rank),
+      wallet.address,
+      String(wallet.totalUsd),
+      String(wallet.positionCount),
+      wallet.capturedAt,
+      protocol.id,
+      asOfRunId == null ? "" : String(asOfRunId),
+    ]),
+  ];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${protocol.id}-top-wallets.csv`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function DeltaPill({ value }: { value: number }) {
@@ -412,34 +443,6 @@ function ActivityChartCard({
   );
 }
 
-function FilterSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T | FilterValue;
-  options: readonly T[];
-  onChange: (value: T | FilterValue) => void;
-}) {
-  return (
-    <Select value={String(value)} onValueChange={(next) => next && onChange(next as T | FilterValue)}>
-      <SelectTrigger className="w-full sm:w-36">
-        <SelectValue>{value === "all" ? `All ${label}` : value}</SelectValue>
-      </SelectTrigger>
-      <SelectPopup>
-        <SelectItem value="all">All {label}</SelectItem>
-        {options.map((option) => (
-          <SelectItem key={option} value={option}>
-            {option}
-          </SelectItem>
-        ))}
-      </SelectPopup>
-    </Select>
-  );
-}
-
 function SortableHead({
   active,
   align,
@@ -476,14 +479,69 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
   const [chartMetric, setChartMetric] = useState<ProtocolMetricKey>("tvl");
   const [chartRange, setChartRange] = useState<ChartRange>("30d");
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<ProtocolUserType | FilterValue>("all");
-  const [riskFilter, setRiskFilter] = useState<ProtocolRiskTier | FilterValue>("all");
-  const [activityFilter, setActivityFilter] = useState<ProtocolActivityWindow | FilterValue>("all");
-  const [sortKey, setSortKey] = useState<UserSortKey>("depositedTvl");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [walletsState, setWalletsState] = useState<WalletsState>({
+    asOfRunId: null,
+    error: null,
+    status: "idle",
+    wallets: [],
+  });
+  const [sortKey, setSortKey] = useState<WalletSortKey>("rank");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(12);
   const [selectedWallets, setSelectedWallets] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (!protocol) {
+      setWalletsState({ asOfRunId: null, error: null, status: "idle", wallets: [] });
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    setSearch("");
+    setPage(0);
+    setSelectedWallets(new Set());
+    setSortKey("rank");
+    setSortDirection("asc");
+    setWalletsState({ asOfRunId: null, error: null, status: "loading", wallets: [] });
+
+    fetchSolanaTopPortfolioWallets(
+      protocol.id,
+      100,
+      {
+        apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
+        baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
+      },
+      controller.signal,
+    )
+      .then((result) => {
+        if (cancelled) return;
+        const platform = result.platforms.find((entry) => entry.platformId === protocol.id) ?? result.platforms[0];
+        setWalletsState({
+          asOfRunId: result.asOfRunId,
+          error: null,
+          status: "ready",
+          wallets: platform?.wallets ?? [],
+        });
+      })
+      .catch((error) => {
+        if (cancelled || controller.signal.aborted) return;
+        console.error(error);
+        setWalletsState({
+          asOfRunId: null,
+          error: error instanceof Error ? error.message : "Unable to load wallets",
+          status: "error",
+          wallets: [],
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [protocol?.id]);
 
   const detail = useMemo(() => (protocol ? buildProtocolDetailMock(protocol) : null), [protocol]);
   const chartPoints = useMemo(() => {
@@ -496,37 +554,33 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
     const lookup = new Map(detail.metrics.map((metric) => [metric.key, metric]));
     return METRIC_KEYS.map((key) => lookup.get(key)).filter(Boolean) as ProtocolDetailMetric[];
   }, [detail]);
-  const filteredUsers = useMemo(() => {
-    if (!detail) return [];
+  const filteredWallets = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return detail.users.filter((user) => {
-      if (query && !`${user.wallet} ${user.network} ${user.type}`.toLowerCase().includes(query)) return false;
-      if (typeFilter !== "all" && user.type !== typeFilter) return false;
-      if (riskFilter !== "all" && user.risk !== riskFilter) return false;
-      if (activityFilter !== "all" && user.activity !== activityFilter) return false;
-      return true;
-    });
-  }, [activityFilter, detail, riskFilter, search, typeFilter]);
-  const sortedUsers = useMemo(
-    () => sortUsers(filteredUsers, sortKey, sortDirection),
-    [filteredUsers, sortDirection, sortKey],
+    if (!query) return walletsState.wallets;
+    return walletsState.wallets.filter((wallet) =>
+      `${wallet.rank} ${wallet.address}`.toLowerCase().includes(query),
+    );
+  }, [search, walletsState.wallets]);
+  const sortedWallets = useMemo(
+    () => sortWallets(filteredWallets, sortKey, sortDirection),
+    [filteredWallets, sortDirection, sortKey],
   );
-  const totalPages = Math.max(1, Math.ceil(sortedUsers.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(sortedWallets.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
-  const pagedUsers = sortedUsers.slice(safePage * pageSize, safePage * pageSize + pageSize);
-  const allOnPage = pagedUsers.length > 0 && pagedUsers.every((user) => selectedWallets.has(user.wallet));
-  const someOnPage = !allOnPage && pagedUsers.some((user) => selectedWallets.has(user.wallet));
+  const pagedWallets = sortedWallets.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const allOnPage = pagedWallets.length > 0 && pagedWallets.every((wallet) => selectedWallets.has(wallet.address));
+  const someOnPage = !allOnPage && pagedWallets.some((wallet) => selectedWallets.has(wallet.address));
 
   if (!protocol || !detail) return <NotFound requestedId={requestedId} onBack={onBack} />;
   const symbol = protocol.symbol?.trim();
 
-  const selectSort = (key: UserSortKey) => {
+  const selectSort = (key: WalletSortKey) => {
     if (sortKey === key) {
       setSortDirection((current) => (current === "desc" ? "asc" : "desc"));
       return;
     }
     setSortKey(key);
-    setSortDirection("desc");
+    setSortDirection(key === "rank" ? "asc" : "desc");
   };
 
   const resetPage = () => setPage(0);
@@ -541,15 +595,15 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
   const togglePageSelection = () => {
     setSelectedWallets((current) => {
       const next = new Set(current);
-      for (const user of pagedUsers) {
-        if (allOnPage) next.delete(user.wallet);
-        else next.add(user.wallet);
+      for (const wallet of pagedWallets) {
+        if (allOnPage) next.delete(wallet.address);
+        else next.add(wallet.address);
       }
       return next;
     });
   };
-  const start = sortedUsers.length === 0 ? 0 : safePage * pageSize + 1;
-  const end = Math.min(sortedUsers.length, (safePage + 1) * pageSize);
+  const start = sortedWallets.length === 0 ? 0 : safePage * pageSize + 1;
+  const end = Math.min(sortedWallets.length, (safePage + 1) * pageSize);
 
   return (
     <div
@@ -559,7 +613,7 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
       <header className="border-b border-border/60 px-6 py-3">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-            Protocol · Local mock
+            Protocol · Wallet API
           </div>
           {protocol.website ? (
             <Button
@@ -674,16 +728,30 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
 
         <section className="rounded-xl border border-border/60 bg-background/40">
           <header className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
-            <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
-              Wallets
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
+                Wallets
+              </div>
+              {walletsState.asOfRunId != null ? (
+                <Badge variant="outline" className="font-mono text-[10px]">
+                  Run {walletsState.asOfRunId}
+                </Badge>
+              ) : null}
             </div>
-            <Button type="button" variant="outline" size="sm" className="shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={sortedWallets.length === 0}
+              onClick={() => exportWalletRows(protocol, sortedWallets, walletsState.asOfRunId)}
+            >
               <DownloadIcon />
               Export
             </Button>
           </header>
 
-          <div className="flex flex-col gap-2.5 border-b border-border/60 px-5 py-3 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-2.5 border-b border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             <InputGroup className="sm:max-w-sm">
               <InputGroupAddon>
                 <SearchIcon />
@@ -699,34 +767,10 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
                 }}
               />
             </InputGroup>
-            <div className="grid grid-cols-3 gap-2 sm:ml-auto sm:flex sm:flex-none">
-              <FilterSelect
-                label="types"
-                value={typeFilter}
-                options={USER_TYPES}
-                onChange={(value) => {
-                  setTypeFilter(value);
-                  resetPage();
-                }}
-              />
-              <FilterSelect
-                label="risks"
-                value={riskFilter}
-                options={RISK_TIERS}
-                onChange={(value) => {
-                  setRiskFilter(value);
-                  resetPage();
-                }}
-              />
-              <FilterSelect
-                label="activity"
-                value={activityFilter}
-                options={ACTIVITY_WINDOWS}
-                onChange={(value) => {
-                  setActivityFilter(value);
-                  resetPage();
-                }}
-              />
+            <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
+              {walletsState.status === "loading"
+                ? "Loading"
+                : `${sortedWallets.length.toLocaleString("en-US")} wallets`}
             </div>
           </div>
 
@@ -741,115 +785,120 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
                     aria-label="Select all rows on this page"
                   />
                 </TableHead>
+                <SortableHead
+                  active={sortKey === "rank"}
+                  direction={sortDirection}
+                  label="Rank"
+                  onClick={() => selectSort("rank")}
+                />
                 <TableHead className="text-xs font-medium text-muted-foreground">Wallet</TableHead>
                 <SortableHead
-                  active={sortKey === "depositedTvl"}
+                  active={sortKey === "totalUsd"}
                   align="right"
                   direction={sortDirection}
-                  label="TVL"
-                  onClick={() => selectSort("depositedTvl")}
+                  label="Total value"
+                  onClick={() => selectSort("totalUsd")}
                 />
                 <SortableHead
-                  active={sortKey === "volume30d"}
+                  active={sortKey === "positionCount"}
                   align="right"
                   direction={sortDirection}
-                  label="30d Vol"
-                  onClick={() => selectSort("volume30d")}
+                  label="Positions"
+                  onClick={() => selectSort("positionCount")}
                 />
                 <SortableHead
-                  active={sortKey === "netFlow"}
+                  active={sortKey === "capturedAt"}
                   align="right"
                   direction={sortDirection}
-                  label="Performance"
-                  onClick={() => selectSort("netFlow")}
-                />
-                <SortableHead
-                  active={sortKey === "lastActiveHours"}
-                  align="right"
-                  direction={sortDirection}
-                  label="Last active"
-                  onClick={() => selectSort("lastActiveHours")}
+                  label="Captured"
+                  onClick={() => selectSort("capturedAt")}
                 />
               </TableRow>
             </TableHeader>
             <TableBody className="[&_tr]:border-border/60">
-              {pagedUsers.length === 0 ? (
+              {walletsState.status === "loading" ? (
                 <TableRow>
                   <TableCell
                     colSpan={6}
                     className="py-12 text-center text-sm text-muted-foreground"
                   >
-                    No users match these filters.
+                    Loading wallets from Trackall API.
+                  </TableCell>
+                </TableRow>
+              ) : walletsState.status === "error" ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="py-12 text-center text-sm text-muted-foreground"
+                  >
+                    {walletsState.error ?? "Could not load wallets."}
+                  </TableCell>
+                </TableRow>
+              ) : pagedWallets.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="py-12 text-center text-sm text-muted-foreground"
+                  >
+                    {search.trim() ? "No wallets match this search." : "No wallets returned for this protocol."}
                   </TableCell>
                 </TableRow>
               ) : (
-                pagedUsers.map((user) => {
-                  const selected = selectedWallets.has(user.wallet);
+                pagedWallets.map((wallet) => {
+                  const selected = selectedWallets.has(wallet.address);
                   return (
-                    <TableRow key={user.wallet} data-state={selected ? "selected" : undefined}>
+                    <TableRow key={wallet.address} data-state={selected ? "selected" : undefined}>
                       <TableCell>
                         <Checkbox
                           checked={selected}
-                          onCheckedChange={() => toggleWallet(user.wallet)}
-                          aria-label={`Select ${shortWallet(user.wallet)}`}
+                          onCheckedChange={() => toggleWallet(wallet.address)}
+                          aria-label={`Select ${shortWallet(wallet.address)}`}
                         />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
+                        #{wallet.rank}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2.5">
-                          <Avatar className={"size-8 shrink-0 " + walletTone(user.wallet)}>
+                          <Avatar className={"size-8 shrink-0 " + walletTone(wallet.address)}>
                             <AvatarFallback className="bg-transparent font-mono text-[11px] font-medium">
-                              {user.wallet.slice(2, 4).toUpperCase()}
+                              {wallet.address.slice(0, 2).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <a
-                                href={getPortfolioAddressPath(user.wallet)}
+                                href={getPortfolioAddressPath(wallet.address)}
                                 onClick={(event) => {
                                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                                   event.preventDefault();
-                                  onOpenWallet(user.wallet);
+                                  onOpenWallet(wallet.address);
                                 }}
                                 className="wallet-address-link font-mono text-xs"
-                                aria-label={`Open ${shortWallet(user.wallet)} portfolio`}
+                                aria-label={`Open ${shortWallet(wallet.address)} portfolio`}
                               >
-                                {shortWallet(user.wallet)}
+                                {shortWallet(wallet.address)}
                               </a>
                               <button
                                 type="button"
-                                onClick={() => void navigator.clipboard?.writeText(user.wallet)}
+                                onClick={() => void navigator.clipboard?.writeText(wallet.address)}
                                 aria-label="Copy wallet"
                                 className="text-muted-foreground/60 transition-colors hover:text-foreground"
                               >
                                 <CopyIcon className="size-3" />
                               </button>
-                              <span
-                                className={"size-1.5 shrink-0 rounded-full " + (RISK_DOT[user.risk] ?? "bg-border")}
-                              />
-                            </div>
-                            <div className="mt-0.5 flex items-center gap-1.5">
-                              <span className="font-mono text-[10px] text-muted-foreground">{user.network}</span>
-                              <Badge variant="outline" className="h-4 px-1 font-mono text-[9px]">{user.type}</Badge>
                             </div>
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatUsd(user.depositedTvl)}
+                        {formatUsd(wallet.totalUsd)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatUsd(user.volume30d)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className={"tabular-nums text-xs font-medium " + flowClass(user.netFlow)}>
-                          {formatSignedUsd(user.netFlow)}
-                        </div>
-                        <div className="mt-0.5 tabular-nums text-[10px] text-muted-foreground">
-                          PnL {formatSignedUsd(user.pnl)}
-                        </div>
+                        {wallet.positionCount.toLocaleString("en-US")}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {formatLastActive(user.lastActiveHours)}
+                        {formatCapturedAt(wallet.capturedAt)}
                       </TableCell>
                     </TableRow>
                   );
@@ -861,7 +910,7 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-5 py-3 text-xs">
             <div className="flex items-center gap-3 text-muted-foreground">
               <span className="font-mono tabular-nums">
-                {start}-{end} of {sortedUsers.length}
+                {start}-{end} of {sortedWallets.length}
               </span>
               {selectedWallets.size > 0 ? (
                 <>
