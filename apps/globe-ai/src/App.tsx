@@ -47,10 +47,12 @@ import {
   isProtocolPath,
 } from "./lib/protocol-route";
 import {
+  fetchSolanaPlatformMetrics,
   fetchSolanaPlatforms,
   mapTrackallPlatformToProtocol,
   sortTrackallProtocols,
   trackallRefreshMs,
+  type TrackallSolanaPlatformMetrics,
 } from "./lib/trackall-api";
 import type { Protocol, WalletPin } from "./lib/types";
 import { useBlockStream } from "./lib/use-block-stream";
@@ -555,6 +557,11 @@ export function App() {
   const [selectedProtocol, setSelectedProtocol] = useState<Protocol | null>(null);
   const [protocolPreviewAnchor, setProtocolPreviewAnchor] = useState<PreviewAnchor | null>(null);
   const [trackallProtocols, setTrackallProtocols] = useState<Protocol[]>([]);
+  const [trackallMetricsById, setTrackallMetricsById] = useState<Map<string, TrackallSolanaPlatformMetrics>>(
+    () => new Map(),
+  );
+  const [trackallMetricsStatus, setTrackallMetricsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [trackallMetricsError, setTrackallMetricsError] = useState<string | null>(null);
   const protocolPreviewCloseRef = useRef<number | null>(null);
   const protocolPreviewHoverRef = useRef(false);
   const currentPathname = useMemo(() => routePathname(routePath), [routePath]);
@@ -565,6 +572,7 @@ export function App() {
     if (!activeProtocolId) return null;
     return allProtocols.find((protocol) => protocol.id === activeProtocolId) ?? null;
   }, [activeProtocolId, allProtocols]);
+  const activeProtocolMetrics = activeProtocol ? trackallMetricsById.get(activeProtocol.id) ?? null : null;
   const protocolRouteActive = isProtocolPath(currentPathname);
   const activeNetwork = useMemo(() => getNetworkFromPath(currentPathname), [currentPathname]);
   const activeNetworkId = useMemo(() => getNetworkIdFromPath(currentPathname), [currentPathname]);
@@ -595,20 +603,42 @@ export function App() {
 
     const loadPlatforms = async () => {
       controller?.abort();
-      controller = new AbortController();
+      const activeController = new AbortController();
+      controller = activeController;
+      setTrackallMetricsStatus((current) => (current === "idle" ? "loading" : current));
 
       try {
-        const platforms = await fetchSolanaPlatforms(
-          {
-            apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
-            baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
-          },
-          controller.signal,
-        );
-        if (cancelled) return;
-        setTrackallProtocols(sortTrackallProtocols(platforms.map(mapTrackallPlatformToProtocol)));
+        const config = {
+          apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
+          baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
+        };
+        const [platformsResult, metricsResult] = await Promise.allSettled([
+          fetchSolanaPlatforms(config, activeController.signal),
+          fetchSolanaPlatformMetrics(config, activeController.signal),
+        ]);
+        if (cancelled || activeController.signal.aborted || controller !== activeController) return;
+
+        if (platformsResult.status === "fulfilled") {
+          setTrackallProtocols(sortTrackallProtocols(platformsResult.value.map(mapTrackallPlatformToProtocol)));
+        } else {
+          console.error(platformsResult.reason);
+        }
+
+        if (metricsResult.status === "fulfilled") {
+          setTrackallMetricsById(
+            new Map(metricsResult.value.platforms.map((metrics) => [metrics.platformId, metrics])),
+          );
+          setTrackallMetricsStatus("ready");
+          setTrackallMetricsError(null);
+        } else {
+          console.error(metricsResult.reason);
+          setTrackallMetricsStatus("error");
+          setTrackallMetricsError(
+            metricsResult.reason instanceof Error ? metricsResult.reason.message : "Unable to load Trackall metrics",
+          );
+        }
       } catch (error) {
-        if (cancelled || controller.signal.aborted) return;
+        if (cancelled || activeController.signal.aborted || controller !== activeController) return;
         console.error(error);
       }
     };
@@ -815,6 +845,9 @@ export function App() {
         ) : protocolRouteActive ? (
           <ProtocolPage
             protocol={activeProtocol}
+            metrics={activeProtocolMetrics}
+            metricsError={trackallMetricsError}
+            metricsStatus={trackallMetricsStatus}
             requestedId={activeProtocolId}
             onBack={handleBackToGlobe}
             onOpenNetwork={handleOpenNetwork}
@@ -877,6 +910,7 @@ export function App() {
             <ProtocolDetailPanel
               protocol={selectedProtocol}
               anchor={protocolPreviewAnchor}
+              metrics={trackallMetricsById.get(selectedProtocol.id) ?? null}
               onClose={handleProtocolPreviewClose}
               onOpen={handleOpenProtocol}
               onOpenNetwork={handleOpenNetwork}

@@ -11,19 +11,21 @@ import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { findNetworkByName } from "@/lib/networks";
 import { formatProtocolLocation } from "@/lib/protocols";
-import { buildProtocolDetailMock, formatDelta, formatUsd } from "@/lib/protocol-stats";
+import { formatDelta, formatNumber, formatUsd } from "@/lib/protocol-stats";
+import type { TrackallSolanaPlatformMetrics } from "@/lib/trackall-api";
 import type { Protocol } from "@/lib/types";
 
 type PreviewAnchor = { x: number; y: number };
 
 const PREVIEW_WIDTH = 390;
-const PREVIEW_ESTIMATED_HEIGHT = 292;
+const PREVIEW_ESTIMATED_HEIGHT = 356;
 const PREVIEW_GAP = 14;
 const MARKER_CLEARANCE = 42;
 
 type Props = {
   protocol: Protocol;
   anchor?: PreviewAnchor | null;
+  metrics?: TrackallSolanaPlatformMetrics | null;
   onClose: () => void;
   onOpen: (protocol: Protocol) => void;
   onOpenNetwork: (networkId: string) => void;
@@ -71,21 +73,26 @@ function panelPosition(anchor: PreviewAnchor | null | undefined): React.CSSPrope
   };
 }
 
+function optionalUsd(value: number | null | undefined) {
+  return value == null ? "—" : formatUsd(value);
+}
+
+function optionalNumber(value: number | null | undefined) {
+  return value == null ? "—" : formatNumber(value);
+}
+
 export function ProtocolDetailPanel({
   protocol,
   anchor,
+  metrics,
   onClose,
   onOpen,
   onOpenNetwork,
   onPointerEnter,
   onPointerLeave,
 }: Props) {
-  const detail = buildProtocolDetailMock(protocol);
-  const tvl = detail.metrics.find((metric) => metric.key === "tvl");
-  const volume = detail.metrics.find((metric) => metric.key === "volume");
-  const users = detail.metrics.find((metric) => metric.key === "users");
-  const delta = tvl?.changes.h24 ?? 0;
-  const positive = delta >= 0;
+  const delta = metrics?.tvlChange24hPct ?? null;
+  const positive = (delta ?? 0) >= 0;
   const symbol = protocol.symbol?.trim();
 
   return (
@@ -171,12 +178,11 @@ export function ProtocolDetailPanel({
         </div>
       ) : null}
 
-      {/* Metrics hidden for now.
       <div className="mt-3 grid grid-cols-3 divide-x divide-border/60 border-y border-border/60">
         <div className="px-3 py-2.5">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">TVL</div>
           <div className="mt-0.5 truncate text-sm tabular-nums">
-            {tvl ? formatUsd(tvl.value) : "--"}
+            {optionalUsd(metrics?.tvlUsd)}
           </div>
         </div>
         <div className="px-3 py-2.5">
@@ -184,7 +190,7 @@ export function ProtocolDetailPanel({
             24h Vol
           </div>
           <div className="mt-0.5 truncate text-sm tabular-nums">
-            {volume ? formatUsd(volume.value) : "--"}
+            {optionalUsd(metrics?.volume24hUsd)}
           </div>
         </div>
         <div className="px-3 py-2.5">
@@ -192,24 +198,29 @@ export function ProtocolDetailPanel({
             Active users
           </div>
           <div className="mt-0.5 truncate text-sm tabular-nums">
-            {users ? Math.round(users.value).toLocaleString("en-US") : "--"}
+            {optionalNumber(protocol.activeUsers)}
           </div>
         </div>
       </div>
-      */}
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <span
-          className={
-            "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] " +
-            (positive
-              ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
-              : "bg-rose-500/12 text-rose-600 dark:text-rose-400")
-          }
-        >
-          {positive ? <ArrowUpRightIcon className="size-3" /> : <ArrowDownRightIcon className="size-3" />}
-          {formatDelta(delta)}
-        </span>
+        {delta == null ? (
+          <span className="inline-flex items-center rounded bg-muted/45 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            TVL change unavailable
+          </span>
+        ) : (
+          <span
+            className={
+              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] " +
+              (positive
+                ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
+                : "bg-rose-500/12 text-rose-600 dark:text-rose-400")
+            }
+          >
+            {positive ? <ArrowUpRightIcon className="size-3" /> : <ArrowDownRightIcon className="size-3" />}
+            {formatDelta(delta)}
+          </span>
+        )}
         <div className="flex items-center gap-1.5">
           {protocol.website ? (
             <Button

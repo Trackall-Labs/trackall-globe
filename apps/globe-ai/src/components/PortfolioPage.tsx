@@ -808,6 +808,7 @@ function WalletValueChart({
 		[fallbackValue],
 	);
 	const showingSkeleton = loading && chartData.length === 0;
+	const showingStaleData = loading && chartData.length > 0;
 	const displayData = showingSkeleton ? skeletonData : chartData;
 	const tickInterval =
 		bucket === "1d" && displayData.length > 18
@@ -881,69 +882,68 @@ function WalletValueChart({
 	}
 
 	return (
-		<Chart.ChartContainer className="h-[188px] [&_.recharts-cartesian-axis-tick_text]:!tracking-normal">
-			<AreaChart
-				data={displayData}
-				margin={{ top: 10, right: 8, left: 0, bottom: 0 }}
-			>
-				<defs>
-					<linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-						<stop
-							offset="0%"
-							stopColor={
-								showingSkeleton ? "var(--muted-foreground)" : strokeColor
-							}
-							stopOpacity={showingSkeleton ? "0.16" : "0.5"}
-						/>
-						<stop
-							offset="100%"
-							stopColor={
-								showingSkeleton ? "var(--muted-foreground)" : strokeColor
-							}
-							stopOpacity={showingSkeleton ? "0.04" : "0.04"}
-						/>
-					</linearGradient>
-				</defs>
-				<Chart.ChartGrid />
-				<XAxis
-					dataKey="label"
-					interval={tickInterval}
-					ticks={xAxisTicks}
-					tick={renderXAxisTick}
-					tickLine={false}
-					axisLine={false}
-					tickMargin={10}
-					minTickGap={8}
-					stroke="currentColor"
-				/>
-				<YAxis
-					width={62}
-					tickFormatter={(value) => formatUsdCompact(Number(value))}
-					tick={{ fontSize: 10, letterSpacing: 0 }}
-					tickLine={false}
-					axisLine={false}
-					tickMargin={10}
-					minTickGap={8}
-					stroke="currentColor"
-				/>
-				{showingSkeleton ? null : <Chart.ChartTooltip />}
-				<Area
-					type="monotone"
-					dataKey="value"
-					name="Total USD"
-					stroke={showingSkeleton ? "var(--muted-foreground)" : strokeColor}
-					strokeOpacity={showingSkeleton ? 0.42 : 1}
-					strokeWidth={2}
-					dot={displayData.length === 1 ? { r: 3, strokeWidth: 2 } : false}
-					activeDot={showingSkeleton ? false : { r: 4, strokeWidth: 2 }}
-					fill={`url(#${gradientId})`}
-					isAnimationActive={!showingSkeleton}
-					animationBegin={80}
-					animationDuration={1000}
-					animationEasing="ease-out"
-				/>
-			</AreaChart>
-		</Chart.ChartContainer>
+		<div
+			className={`transition-opacity duration-200 ease-out ${
+				showingStaleData ? "opacity-60" : "opacity-100"
+			} ${showingSkeleton ? "animate-pulse" : ""}`}
+		>
+			<Chart.ChartContainer className="h-[188px] [&_.recharts-cartesian-axis-tick_text]:!tracking-normal">
+				<AreaChart
+					data={displayData}
+					margin={{ top: 10, right: 8, left: 0, bottom: 0 }}
+				>
+					<defs>
+						<linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+							<stop
+								offset="0%"
+								stopColor={strokeColor}
+								stopOpacity={showingSkeleton ? 0.16 : 0.5}
+							/>
+							<stop
+								offset="100%"
+								stopColor={strokeColor}
+								stopOpacity={0.04}
+							/>
+						</linearGradient>
+					</defs>
+					<Chart.ChartGrid />
+					<XAxis
+						dataKey="label"
+						interval={tickInterval}
+						ticks={xAxisTicks}
+						tick={renderXAxisTick}
+						tickLine={false}
+						axisLine={false}
+						tickMargin={10}
+						minTickGap={8}
+						stroke="currentColor"
+					/>
+					<YAxis
+						width={62}
+						tickFormatter={(value) => formatUsdCompact(Number(value))}
+						tick={{ fontSize: 10, letterSpacing: 0 }}
+						tickLine={false}
+						axisLine={false}
+						tickMargin={10}
+						minTickGap={8}
+						stroke="currentColor"
+					/>
+					<Chart.ChartTooltip />
+					<Area
+						type="monotone"
+						dataKey="value"
+						name="Total USD"
+						stroke={strokeColor}
+						strokeOpacity={showingSkeleton ? 0.4 : 1}
+						strokeWidth={2}
+						dot={displayData.length === 1 ? { r: 3, strokeWidth: 2 } : false}
+						activeDot={showingSkeleton ? false : { r: 4, strokeWidth: 2 }}
+						fill={`url(#${gradientId})`}
+						isAnimationActive={false}
+					/>
+				</AreaChart>
+			</Chart.ChartContainer>
+		</div>
 	);
 }
 
@@ -1971,10 +1971,7 @@ export function PortfolioPage({
 	const activeAddressStatus =
 		remotePortfolio?.address === loadWalletAddress ? remotePortfolio : null;
 	const activePlotStatus =
-		walletPlotState?.address === walletAddress &&
-		walletPlotState.bucket === plotBucket
-			? walletPlotState
-			: null;
+		walletPlotState?.address === walletAddress ? walletPlotState : null;
 	const shouldShowLoading =
 		Boolean(loadWalletAddress) &&
 		shouldLoadSolanaWallet &&
@@ -2234,15 +2231,17 @@ export function PortfolioPage({
 			apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
 			baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
 		};
-		const initialState: WalletPlotState = {
-			address: loadWalletAddress,
-			bucket: plotBucket,
-			error: null,
-			loading: true,
-			plot: cachedState?.plot ?? null,
-		};
-
-		setWalletPlot(initialState);
+		setWalletPlot((current) => {
+			const previousPlot =
+				current?.address === loadWalletAddress ? current.plot : null;
+			return {
+				address: loadWalletAddress,
+				bucket: plotBucket,
+				error: null,
+				loading: true,
+				plot: cachedState?.plot ?? previousPlot ?? null,
+			};
+		});
 
 		fetchSolanaPortfolioPlot(
 			loadWalletAddress,

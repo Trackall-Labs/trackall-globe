@@ -32,23 +32,24 @@ import { getPortfolioAddressPath } from "@/lib/protocol-route";
 import { formatProtocolLocation } from "@/lib/protocols";
 import {
   fetchSolanaTopPortfolioWallets,
+  type TrackallSolanaPlatformMetricPlotPoint,
+  type TrackallSolanaPlatformMetrics,
   type TrackallTopWallet,
 } from "@/lib/trackall-api";
 import {
   PAGE_SIZE_OPTIONS,
-  buildProtocolDetailMock,
   formatDelta,
   formatNumber,
   formatUsd,
   shortWallet,
-  type ProtocolChartPoint,
-  type ProtocolDetailMetric,
-  type ProtocolMetricKey,
 } from "@/lib/protocol-stats";
 import type { Protocol } from "@/lib/types";
 
 type Props = {
   protocol: Protocol | null;
+  metrics: TrackallSolanaPlatformMetrics | null;
+  metricsError: string | null;
+  metricsStatus: "idle" | "loading" | "ready" | "error";
   requestedId: string | null;
   onBack: () => void;
   onOpenNetwork: (networkId: string) => void;
@@ -58,6 +59,25 @@ type Props = {
 type WalletSortKey = "rank" | "totalUsd" | "positionCount" | "capturedAt";
 type SortDirection = "asc" | "desc";
 type ChartRange = "7d" | "14d" | "30d";
+type ProtocolMetricKey = "tvl" | "volume";
+type ProtocolMetricCardKey = ProtocolMetricKey | "users" | "programs";
+type ProtocolChartPoint = {
+  label: string;
+  timestamp: string;
+  tvl: number | null;
+  volume: number | null;
+};
+type ProtocolDetailMetric = {
+  key: ProtocolMetricCardKey;
+  label: string;
+  value: number | null;
+  format: "usd" | "number";
+  change24h: number | null;
+};
+type ProtocolDetail = {
+  chart: ProtocolChartPoint[];
+  metrics: ProtocolDetailMetric[];
+};
 type WalletsState = {
   asOfRunId: number | null;
   error: string | null;
@@ -65,7 +85,7 @@ type WalletsState = {
   wallets: TrackallTopWallet[];
 };
 
-const METRIC_KEYS = ["tvl", "volume", "users", "deposits"] as const;
+const METRIC_KEYS = ["tvl", "volume", "users", "programs"] as const;
 const CHART_RANGES: { key: ChartRange; label: string; size: number }[] = [
   { key: "7d", label: "7D", size: 7 },
   { key: "14d", label: "14D", size: 14 },
@@ -85,10 +105,11 @@ function protocolInitials(protocol: Protocol) {
 }
 
 function metricValue(metric: ProtocolDetailMetric) {
+  if (metric.value == null) return "—";
   return metric.format === "usd" ? formatUsd(metric.value) : formatNumber(metric.value);
 }
 
-function metricIcon(key: ProtocolDetailMetric["key"]) {
+function metricIcon(key: ProtocolMetricCardKey) {
   if (key === "tvl") return <WalletIcon className="size-4" />;
   if (key === "volume") return <ActivityIcon className="size-4" />;
   if (key === "users") return <UsersIcon className="size-4" />;
@@ -97,16 +118,14 @@ function metricIcon(key: ProtocolDetailMetric["key"]) {
 
 function chartLabel(metric: ProtocolMetricKey) {
   if (metric === "tvl") return "Total value locked";
-  if (metric === "volume") return "Protocol volume";
-  return "Active users";
+  return "Protocol volume";
 }
 
-function chartValue(metric: ProtocolMetricKey, value: number) {
-  return metric === "users" ? formatNumber(value) : formatUsd(value);
+function chartValue(value: number | null) {
+  return value == null ? "—" : formatUsd(value);
 }
 
-function axisValue(metric: ProtocolMetricKey, value: number) {
-  if (metric === "users") return formatNumber(value);
+function axisValue(value: number) {
   return formatUsd(value).replace(".00", "");
 }
 
@@ -150,6 +169,18 @@ function formatCapturedAt(value: string) {
   });
 }
 
+function formatMetricsTime(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toLocaleString("en-US", {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+  });
+}
+
 function csvCell(value: number | string | null) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
@@ -179,7 +210,64 @@ function exportWalletRows(protocol: Protocol, wallets: TrackallTopWallet[], asOf
   URL.revokeObjectURL(url);
 }
 
-function DeltaPill({ value }: { value: number }) {
+function chartPointLabel(point: TrackallSolanaPlatformMetricPlotPoint) {
+  const date = new Date(point.timestamp);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return date.toLocaleDateString("en-US", { day: "numeric", month: "short" });
+}
+
+function buildProtocolDetail(protocol: Protocol, metrics: TrackallSolanaPlatformMetrics | null): ProtocolDetail {
+  const plot = metrics?.plot ?? [];
+
+  return {
+    chart: plot.map((point) => ({
+      label: chartPointLabel(point),
+      timestamp: point.timestamp,
+      tvl: point.tvlUsd,
+      volume: point.volume24hUsd,
+    })),
+    metrics: [
+      {
+        key: "tvl",
+        label: "TVL",
+        value: metrics?.tvlUsd ?? null,
+        format: "usd",
+        change24h: metrics?.tvlChange24hPct ?? null,
+      },
+      {
+        key: "volume",
+        label: "24h Volume",
+        value: metrics?.volume24hUsd ?? null,
+        format: "usd",
+        change24h: metrics?.volumeChange24hPct ?? null,
+      },
+      {
+        key: "users",
+        label: "Active Users",
+        value: protocol.activeUsers ?? null,
+        format: "number",
+        change24h: null,
+      },
+      {
+        key: "programs",
+        label: "Indexed Programs",
+        value: protocol.programIds?.length ?? null,
+        format: "number",
+        change24h: null,
+      },
+    ],
+  };
+}
+
+function DeltaPill({ value }: { value: number | null }) {
+  if (value == null) {
+    return (
+      <span className="inline-flex items-center rounded bg-muted/45 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+        —
+      </span>
+    );
+  }
+
   const positive = value >= 0;
   return (
     <span
@@ -279,8 +367,15 @@ function NotFound({ requestedId, onBack }: Pick<Props, "requestedId" | "onBack">
 }
 
 function StatCard({ metric, chart }: { metric: ProtocolDetailMetric; chart: ProtocolChartPoint[] }) {
-  const positive = metric.changes.h24 >= 0;
-  const sparkKey: ProtocolMetricKey = metric.key === "volume" || metric.key === "users" ? metric.key : "tvl";
+  const positive = (metric.change24h ?? 0) >= 0;
+  const sparkKey: ProtocolMetricKey = metric.key === "volume" ? "volume" : "tvl";
+  const sparkValues =
+    metric.key === "tvl" || metric.key === "volume"
+      ? chart
+          .slice(-14)
+          .map((point) => point[sparkKey])
+          .filter((value): value is number => value != null)
+      : [];
   return (
     <div className="rounded-xl border border-border/60 bg-background/40 p-4">
       <div className="flex items-center justify-between">
@@ -293,14 +388,18 @@ function StatCard({ metric, chart }: { metric: ProtocolDetailMetric; chart: Prot
         {metricValue(metric)}
       </div>
       <div className="mt-2 flex items-center gap-2">
-        <DeltaPill value={metric.changes.h24} />
-        <span className="text-xs text-muted-foreground">vs prev 24h</span>
+        <DeltaPill value={metric.change24h} />
+        <span className="text-xs text-muted-foreground">
+          {metric.change24h == null ? "24h change unavailable" : "vs prev 24h"}
+        </span>
       </div>
-      <Sparkline
-        values={chart.slice(-14).map((point) => point[sparkKey])}
-        positive={positive}
-        className="mt-3 h-10 w-full"
-      />
+      {sparkValues.length > 1 ? (
+        <Sparkline values={sparkValues} positive={positive} className="mt-3 h-10 w-full" />
+      ) : (
+        <div className="mt-3 grid h-10 place-items-center rounded-md border border-dashed border-border/60 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          No plot
+        </div>
+      )}
     </div>
   );
 }
@@ -309,47 +408,30 @@ function ActivityChartCard({
   metric,
   range,
   points,
-  protocol,
   onMetricChange,
   onRangeChange,
 }: {
   metric: ProtocolMetricKey;
   range: ChartRange;
   points: ProtocolChartPoint[];
-  protocol: Protocol;
   onMetricChange: (next: ProtocolMetricKey) => void;
   onRangeChange: (next: ChartRange) => void;
 }) {
   const gradientId = useId().replace(/:/g, "");
-  const series = useMemo(() => {
-    const names = protocol.networks.length > 0 ? protocol.networks.slice(0, 3) : [protocol.category];
-    const weights = names.map((_, index) => 1 / (index + 1.35));
-    const total = weights.reduce((sum, value) => sum + value, 0);
-    return names.map((name, index) => ({
-      color: Chart.chartColor(index),
-      key: `series${index}`,
-      name,
-      weight: weights[index]! / total,
-    }));
-  }, [protocol.category, protocol.networks]);
-  const today = useMemo(() => new Date(), []);
   const chartData = useMemo(
     () =>
-      points.map((point) => {
-        const daysAgo = parseInt(point.label.replace("D-", ""), 10);
-        const date = new Date(today);
-        date.setDate(today.getDate() - daysAgo);
-        const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        const row: Record<string, number | string> = { label };
-        for (const item of series) row[item.key] = point[metric] * item.weight;
-        return row;
-      }),
-    [metric, points, series, today],
+      points.map((point) => ({
+        label: point.label,
+        value: point[metric],
+      })),
+    [metric, points],
   );
   const tickInterval = Math.max(0, Math.floor(points.length / 6) - 1);
-  const latest = points.at(-1)?.[metric] ?? 0;
-  const first = points.at(0)?.[metric] ?? latest;
-  const delta = first === 0 ? 0 : ((latest - first) / first) * 100;
+  const values = points.map((point) => point[metric]).filter((value): value is number => value != null);
+  const latest = values.at(-1) ?? null;
+  const first = values.at(0) ?? latest;
+  const delta = latest == null || first == null || first === 0 ? null : ((latest - first) / first) * 100;
+  const color = Chart.chartColor(metric === "tvl" ? 0 : 1);
 
   return (
     <section className="rounded-xl border border-border/60 bg-background/40 p-5">
@@ -360,7 +442,7 @@ function ActivityChartCard({
           </div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="font-heading text-2xl tracking-tight tabular-nums">
-              {chartValue(metric, latest)}
+              {chartValue(latest)}
             </span>
             <DeltaPill value={delta} />
           </div>
@@ -373,7 +455,6 @@ function ActivityChartCard({
             <TabsList aria-label="Chart metric">
               <TabsTab value="tvl">TVL</TabsTab>
               <TabsTab value="volume">Volume</TabsTab>
-              <TabsTab value="users">Users</TabsTab>
             </TabsList>
           </Tabs>
           <Tabs
@@ -392,53 +473,45 @@ function ActivityChartCard({
       </header>
 
       <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground">
-        {series.map((item) => (
-          <span key={item.key} className="inline-flex items-center gap-1.5">
-            <span className="size-1.5 rounded-full" style={{ backgroundColor: item.color }} />
-            {item.name}
-          </span>
-        ))}
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-1.5 rounded-full" style={{ backgroundColor: color }} />
+          Trackall API
+        </span>
       </div>
 
-      <Chart.ChartContainer className="mt-4 h-60 [&_.recharts-yAxis_.recharts-cartesian-axis-tick_text]:tracking-normal">
+      {values.length > 1 ? (
+        <Chart.ChartContainer className="mt-4 h-60 [&_.recharts-yAxis_.recharts-cartesian-axis-tick_text]:tracking-normal">
           <AreaChart data={chartData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
             <defs>
-              {series.map((item) => (
-                <linearGradient
-                  key={item.key}
-                  id={`${gradientId}-${item.key}`}
-                  x1="0"
-                  x2="0"
-                  y1="0"
-                  y2="1"
-                >
-                  <stop offset="0%" stopColor={item.color} stopOpacity="0.7" />
-                  <stop offset="100%" stopColor={item.color} stopOpacity="0.1" />
-                </linearGradient>
-              ))}
+              <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity="0.7" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.1" />
+              </linearGradient>
             </defs>
             <Chart.ChartGrid />
             <Chart.ChartAxis dataKey="label" interval={tickInterval} />
             <Chart.ChartAxis
               axis="y"
               width={56}
-              tickFormatter={(value) => axisValue(metric, Number(value))}
+              tickFormatter={(value) => axisValue(Number(value))}
             />
             <Chart.ChartTooltip />
-            {series.map((item) => (
-              <Area
-                key={item.key}
-                type="monotone"
-                dataKey={item.key}
-                name={item.name}
-                stackId="protocol"
-                stroke={item.color}
-                strokeWidth={1.5}
-                fill={`url(#${gradientId}-${item.key})`}
-              />
-            ))}
+            <Area
+              type="monotone"
+              dataKey="value"
+              name={metric === "tvl" ? "TVL" : "24h Volume"}
+              stroke={color}
+              strokeWidth={1.5}
+              fill={`url(#${gradientId})`}
+              connectNulls
+            />
           </AreaChart>
         </Chart.ChartContainer>
+      ) : (
+        <div className="mt-4 grid h-60 place-items-center rounded-lg border border-dashed border-border/60 text-sm text-muted-foreground">
+          No Trackall plot data returned for this metric.
+        </div>
+      )}
     </section>
   );
 }
@@ -475,7 +548,16 @@ function SortableHead({
   );
 }
 
-export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onOpenWallet }: Props) {
+export function ProtocolPage({
+  protocol,
+  metrics,
+  metricsError,
+  metricsStatus,
+  requestedId,
+  onBack,
+  onOpenNetwork,
+  onOpenWallet,
+}: Props) {
   const [chartMetric, setChartMetric] = useState<ProtocolMetricKey>("tvl");
   const [chartRange, setChartRange] = useState<ChartRange>("30d");
   const [search, setSearch] = useState("");
@@ -543,7 +625,7 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
     };
   }, [protocol?.id]);
 
-  const detail = useMemo(() => (protocol ? buildProtocolDetailMock(protocol) : null), [protocol]);
+  const detail = useMemo(() => (protocol ? buildProtocolDetail(protocol, metrics) : null), [metrics, protocol]);
   const chartPoints = useMemo(() => {
     if (!detail) return [];
     const size = CHART_RANGES.find((entry) => entry.key === chartRange)?.size ?? 30;
@@ -573,6 +655,7 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
 
   if (!protocol || !detail) return <NotFound requestedId={requestedId} onBack={onBack} />;
   const symbol = protocol.symbol?.trim();
+  const metricsCapturedAt = formatMetricsTime(metrics?.capturedAt ?? metrics?.updatedAt);
 
   const selectSort = (key: WalletSortKey) => {
     if (sortKey === key) {
@@ -661,6 +744,21 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
                   </Badge>
                 </div>
               ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
+                  <ActivityIcon className="size-3" />
+                  {metricsStatus === "loading"
+                    ? "Metrics loading"
+                    : metricsStatus === "error"
+                      ? "Metrics unavailable"
+                      : metricsCapturedAt
+                        ? `Metrics ${metricsCapturedAt}`
+                        : "Metrics unavailable"}
+                </Badge>
+                {metricsStatus === "error" && metricsError ? (
+                  <span className="text-xs text-muted-foreground">{metricsError}</span>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -721,7 +819,6 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
           metric={chartMetric}
           range={chartRange}
           points={chartPoints}
-          protocol={protocol}
           onMetricChange={setChartMetric}
           onRangeChange={setChartRange}
         />

@@ -113,6 +113,51 @@ export type TrackallTopWalletsResponse = {
   platforms: TrackallTopWalletsPlatform[];
 };
 
+export type TrackallSolanaPlatformMetricPlotPoint = {
+  timestamp: string;
+  tvlUsd: number | null;
+  volume24hUsd: number | null;
+};
+
+export type TrackallSolanaChainMetrics = {
+  capturedAt: string | null;
+  chain: "Solana";
+  errorMessage: string | null;
+  plot: TrackallSolanaPlatformMetricPlotPoint[];
+  tvlChange24hPct: number | null;
+  tvlPrevious24hUsd: number | null;
+  tvlUsd: number | null;
+  updatedAt: string | null;
+  volume24hUsd: number | null;
+  volumeChange24hPct: number | null;
+  volumePrevious24hUsd: number | null;
+};
+
+export type TrackallSolanaPlatformMetrics = {
+  capturedAt: string | null;
+  errorMessage: string | null;
+  platformId: string;
+  platformName: string;
+  plot: TrackallSolanaPlatformMetricPlotPoint[];
+  tvlChange24hPct: number | null;
+  tvlMatchStatus: "matched" | "missing";
+  tvlPrevious24hUsd: number | null;
+  tvlSlug: string | null;
+  tvlUsd: number | null;
+  updatedAt: string | null;
+  volume24hUsd: number | null;
+  volumeChange24hPct: number | null;
+  volumeMatchStatus: "matched" | "missing";
+  volumePrevious24hUsd: number | null;
+  volumeSlug: string | null;
+};
+
+export type TrackallSolanaPlatformMetricsResponse = {
+  chain: TrackallSolanaChainMetrics;
+  network: "solana";
+  platforms: TrackallSolanaPlatformMetrics[];
+};
+
 const DEFAULT_TRACKALL_API_URL = "https://trackall.nightly.app/";
 const SOLANA_HUB = NETWORKS.find((network) => network.id === "solana") ?? NETWORKS[0]!;
 const API_REFRESH_MS = 60_000;
@@ -654,6 +699,100 @@ function parseTopWalletsResponse(value: unknown): TrackallTopWalletsResponse | n
   };
 }
 
+function readNullableIsoString(value: unknown) {
+  if (value === null) return null;
+  const raw = readString(value);
+  if (!raw || !Number.isFinite(Date.parse(raw))) return null;
+  return new Date(raw).toISOString();
+}
+
+function readNullableMetric(value: unknown) {
+  if (value === null) return null;
+  return readFiniteDecimalNumber(value);
+}
+
+function parseMetricMatchStatus(value: unknown): "matched" | "missing" {
+  return value === "matched" ? "matched" : "missing";
+}
+
+function parsePlatformMetricPlotPoint(value: unknown): TrackallSolanaPlatformMetricPlotPoint | null {
+  if (!isRecord(value)) return null;
+  const timestamp = readString(value.timestamp);
+  if (!timestamp || !Number.isFinite(Date.parse(timestamp))) return null;
+
+  return {
+    timestamp: new Date(timestamp).toISOString(),
+    tvlUsd: readNullableMetric(value.tvlUsd),
+    volume24hUsd: readNullableMetric(value.volume24hUsd),
+  };
+}
+
+function parsePlatformMetricPlot(value: unknown): TrackallSolanaPlatformMetricPlotPoint[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(parsePlatformMetricPlotPoint)
+    .filter((point): point is TrackallSolanaPlatformMetricPlotPoint => point !== null)
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+}
+
+function parseChainMetrics(value: unknown): TrackallSolanaChainMetrics | null {
+  if (!isRecord(value) || value.chain !== "Solana") return null;
+
+  return {
+    capturedAt: readNullableIsoString(value.capturedAt),
+    chain: "Solana",
+    errorMessage: readString(value.errorMessage),
+    plot: parsePlatformMetricPlot(value.plot),
+    tvlChange24hPct: readNullableMetric(value.tvlChange24hPct),
+    tvlPrevious24hUsd: readNullableMetric(value.tvlPrevious24hUsd),
+    tvlUsd: readNullableMetric(value.tvlUsd),
+    updatedAt: readNullableIsoString(value.updatedAt),
+    volume24hUsd: readNullableMetric(value.volume24hUsd),
+    volumeChange24hPct: readNullableMetric(value.volumeChange24hPct),
+    volumePrevious24hUsd: readNullableMetric(value.volumePrevious24hUsd),
+  };
+}
+
+function parsePlatformMetrics(value: unknown): TrackallSolanaPlatformMetrics | null {
+  if (!isRecord(value)) return null;
+  const platformId = readString(value.platformId);
+  const platformName = readString(value.platformName);
+  if (!platformId || !platformName) return null;
+
+  return {
+    capturedAt: readNullableIsoString(value.capturedAt),
+    errorMessage: readString(value.errorMessage),
+    platformId,
+    platformName,
+    plot: parsePlatformMetricPlot(value.plot),
+    tvlChange24hPct: readNullableMetric(value.tvlChange24hPct),
+    tvlMatchStatus: parseMetricMatchStatus(value.tvlMatchStatus),
+    tvlPrevious24hUsd: readNullableMetric(value.tvlPrevious24hUsd),
+    tvlSlug: readString(value.tvlSlug),
+    tvlUsd: readNullableMetric(value.tvlUsd),
+    updatedAt: readNullableIsoString(value.updatedAt),
+    volume24hUsd: readNullableMetric(value.volume24hUsd),
+    volumeChange24hPct: readNullableMetric(value.volumeChange24hPct),
+    volumeMatchStatus: parseMetricMatchStatus(value.volumeMatchStatus),
+    volumePrevious24hUsd: readNullableMetric(value.volumePrevious24hUsd),
+    volumeSlug: readString(value.volumeSlug),
+  };
+}
+
+function parsePlatformMetricsResponse(value: unknown): TrackallSolanaPlatformMetricsResponse | null {
+  if (!isRecord(value) || value.network !== "solana" || !Array.isArray(value.platforms)) return null;
+  const chain = parseChainMetrics(value.chain);
+  if (!chain) return null;
+
+  return {
+    chain,
+    network: "solana",
+    platforms: value.platforms
+      .map(parsePlatformMetrics)
+      .filter((platform): platform is TrackallSolanaPlatformMetrics => platform !== null),
+  };
+}
+
 function requireApiKey(config: TrackallApiConfig) {
   const apiKey = config.apiKey?.trim();
   if (!apiKey) {
@@ -801,6 +940,33 @@ export async function fetchSolanaPlatforms(
   }
 
   return data.map(parsePlatform).filter((platform): platform is TrackallPlatform => platform !== null);
+}
+
+export async function fetchSolanaPlatformMetrics(
+  config: TrackallApiConfig = {},
+  signal?: AbortSignal,
+): Promise<TrackallSolanaPlatformMetricsResponse> {
+  const data = await fetchTrackallJson("api/solana/platform-metrics", config, signal);
+  const result = parsePlatformMetricsResponse(data);
+  if (!result) {
+    throw new Error("Trackall API returned an invalid platform metrics payload");
+  }
+
+  return result;
+}
+
+export async function fetchSolanaPlatformMetricsById(
+  platformId: string,
+  config: TrackallApiConfig = {},
+  signal?: AbortSignal,
+): Promise<TrackallSolanaPlatformMetrics> {
+  const data = await fetchTrackallJson(`api/solana/platform-metrics/${encodeURIComponent(platformId)}`, config, signal);
+  const result = parsePlatformMetrics(data);
+  if (!result) {
+    throw new Error("Trackall API returned an invalid platform metrics payload");
+  }
+
+  return result;
 }
 
 export async function fetchSolanaPositions(
