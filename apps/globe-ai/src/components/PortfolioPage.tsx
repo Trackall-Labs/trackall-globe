@@ -1774,9 +1774,11 @@ function publishedPositions(state: RemotePortfolioState | null) {
 }
 
 function portfolioDataReady(state: RemotePortfolioState | null) {
-	return Boolean(
-		state?.cacheLoaded && state.tokensLoaded && state.positionTokensLoaded,
-	);
+	return Boolean(state?.cacheLoaded && state.tokensLoaded);
+}
+
+function portfolioMetadataReady(state: RemotePortfolioState | null) {
+	return Boolean(state?.positionTokensLoaded);
 }
 
 function errorMessage(error: unknown) {
@@ -1988,7 +1990,11 @@ export function PortfolioPage({
 
 		const cachedState =
 			REMOTE_PORTFOLIO_STATE_BY_ADDRESS.get(loadWalletAddress);
-		if (cachedState && portfolioDataReady(cachedState)) {
+		if (
+			cachedState &&
+			portfolioDataReady(cachedState) &&
+			portfolioMetadataReady(cachedState)
+		) {
 			setRemotePortfolio(cachedState);
 			return;
 		}
@@ -1998,43 +2004,53 @@ export function PortfolioPage({
 			apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
 			baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
 		};
-		const initialState: RemotePortfolioState = {
-			address: loadWalletAddress,
-			cacheLoaded: false,
-			cachePositions: [],
-			cachedAt: null,
-			liveLoaded: false,
-			livePositions: [],
-			loadingCache: true,
-			loadingLive: true,
-			loadingPositionTokens: true,
-			loadingTokens: true,
-			positionTokenError: null,
-			positionTokens: [],
-			positionTokensLoaded: false,
-			positionError: null,
-			tokenError: null,
-			tokensLoaded: false,
-			tokens: [],
-		};
+		const initialState: RemotePortfolioState = cachedState
+			? {
+					...cachedState,
+					loadingCache: !cachedState.cacheLoaded,
+					loadingLive: !cachedState.liveLoaded,
+					loadingPositionTokens: !cachedState.positionTokensLoaded,
+					loadingTokens: !cachedState.tokensLoaded,
+				}
+			: {
+					address: loadWalletAddress,
+					cacheLoaded: false,
+					cachePositions: [],
+					cachedAt: null,
+					liveLoaded: false,
+					livePositions: [],
+					loadingCache: true,
+					loadingLive: true,
+					loadingPositionTokens: true,
+					loadingTokens: true,
+					positionTokenError: null,
+					positionTokens: [],
+					positionTokensLoaded: false,
+					positionError: null,
+					tokenError: null,
+					tokensLoaded: false,
+					tokens: [],
+				};
 
 		setRemotePortfolio(initialState);
 
-		const cachePromise = fetchSolanaPositionCache(
-			loadWalletAddress,
-			config,
-			controller.signal,
-		);
-		const livePromise = fetchSolanaPositions(
-			loadWalletAddress,
-			config,
-			controller.signal,
-		);
-		const tokensPromise = fetchSolanaTokens(
-			loadWalletAddress,
-			config,
-			controller.signal,
-		);
+		const cachePromise = cachedState?.cacheLoaded
+			? Promise.resolve({
+					address: loadWalletAddress,
+					cachedAt: cachedState.cachedAt,
+					positions: cachedState.cachePositions,
+				})
+			: fetchSolanaPositionCache(
+					loadWalletAddress,
+					config,
+					controller.signal,
+				);
+		const livePromise = cachedState?.liveLoaded
+			? Promise.resolve(cachedState.livePositions)
+			: fetchSolanaPositions(loadWalletAddress, config, controller.signal);
+		const tokensPromise = cachedState?.tokensLoaded
+			? Promise.resolve(cachedState.tokens)
+			: fetchSolanaTokens(loadWalletAddress, config, controller.signal);
 
 		cachePromise
 			.then((cache) => {
