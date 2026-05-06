@@ -1,14 +1,35 @@
 import { chartColor } from "@orbit/ui/patterns/charts/chart";
 import { NETWORKS, type Network } from "./networks";
 import { PROTOCOLS } from "./protocols";
-import type { TrackallPositionLeg, TrackallSolanaPosition, TrackallSolanaToken } from "./trackall-api";
+import type {
+  LendingBorrowedAsset,
+  LendingDefiPosition,
+  LendingSuppliedAsset,
+  LiquidityDefiPosition,
+  PositionValue,
+  RewardDefiPosition,
+  StakedAsset,
+  StakingDefiPosition,
+  TrackallSolanaPosition,
+  TrackallSolanaToken,
+  VestingDefiPosition,
+} from "./trackall-api";
 import type { Protocol } from "./types";
 
 export const RECENT_WALLETS_STORAGE_KEY = "globe-ai:recent-wallets";
 export const MAX_RECENT_WALLETS = 5;
 
 export type AllocationKind = "tokens" | "defi";
-export type DefiGroupKind = "Lending" | "Liquidity" | "Staking";
+export const DefiGroupKind = {
+  Lending: "Lending",
+  Supplied: "Supplied",
+  Borrowing: "Borrowing",
+  Liquidity: "Liquidity",
+  Staking: "Staking",
+  Rewards: "Rewards",
+  Fees: "Fees",
+} as const;
+export type DefiGroupKind = (typeof DefiGroupKind)[keyof typeof DefiGroupKind];
 
 export type TokenHolding = {
   tokenId?: string;
@@ -24,15 +45,29 @@ export type TokenHolding = {
   logoUrl?: string;
 };
 
+export type DefiPositionRowToken = {
+  symbol: string;
+  logoUrl?: string;
+};
+
+export type DefiClaimLabel = {
+  kind: "rewards" | "fees";
+  value: number;
+};
+
 export type DefiPositionRow = {
   asset: string;
   balance: string;
+  balanceLines?: string[];
   altBalance?: string;
+  claimLabels?: DefiClaimLabel[];
   logoUrl?: string;
+  tokens?: DefiPositionRowToken[];
   usd: number;
   usdChange24h: number;
   usdChangePct24h: number;
   yieldLabel: string | null;
+  yieldNegative?: boolean;
 };
 
 export type DefiPositionGroup = {
@@ -40,6 +75,7 @@ export type DefiPositionGroup = {
   walletShort: string;
   value: number;
   rows: DefiPositionRow[];
+  pairKey?: string;
 };
 
 export type DefiProtocolBlock = {
@@ -47,6 +83,10 @@ export type DefiProtocolBlock = {
   protocolName: string;
   protocolHref: string;
   protocolLogo?: string;
+  claimSummary: {
+    feesUsd: number;
+    rewardsUsd: number;
+  };
   totalValue: number;
   groups: DefiPositionGroup[];
 };
@@ -143,10 +183,11 @@ const DEFI_POSITIONS: DefiProtocolBlock[] = [
     protocolId: "loopscale",
     protocolName: "LOOPSCALE",
     protocolHref: "https://loopscale.app",
+    claimSummary: { feesUsd: 0, rewardsUsd: 0 },
     totalValue: 16.03,
     groups: [
       {
-        kind: "Lending",
+        kind: DefiGroupKind.Lending,
         walletShort: "tEsT1...j51nd",
         value: 16.03,
         rows: [
@@ -215,10 +256,11 @@ const DEFI_POSITIONS: DefiProtocolBlock[] = [
     protocolId: "omnipair",
     protocolName: "OMNIPAIR",
     protocolHref: "https://omnipair.io",
+    claimSummary: { feesUsd: 0, rewardsUsd: 0 },
     totalValue: 14.28,
     groups: [
       {
-        kind: "Lending",
+        kind: DefiGroupKind.Lending,
         walletShort: "tEsT1...j51nd",
         value: 1.2,
         rows: [
@@ -234,7 +276,7 @@ const DEFI_POSITIONS: DefiProtocolBlock[] = [
         ],
       },
       {
-        kind: "Liquidity",
+        kind: DefiGroupKind.Liquidity,
         walletShort: "tEsT1...j51nd",
         value: 13.08,
         rows: [
@@ -255,10 +297,11 @@ const DEFI_POSITIONS: DefiProtocolBlock[] = [
     protocolId: "kamino",
     protocolName: "KAMINO FINANCE",
     protocolHref: "https://app.kamino.finance",
+    claimSummary: { feesUsd: 0, rewardsUsd: 0 },
     totalValue: 6281.39,
     groups: [
       {
-        kind: "Lending",
+        kind: DefiGroupKind.Lending,
         walletShort: "tEsT1...j51nd",
         value: 4521.0,
         rows: [
@@ -273,7 +316,7 @@ const DEFI_POSITIONS: DefiProtocolBlock[] = [
         ],
       },
       {
-        kind: "Liquidity",
+        kind: DefiGroupKind.Liquidity,
         walletShort: "tEsT1...j51nd",
         value: 1760.39,
         rows: [
@@ -294,10 +337,11 @@ const DEFI_POSITIONS: DefiProtocolBlock[] = [
     protocolId: "meteora",
     protocolName: "METEORA",
     protocolHref: "https://meteora.ag",
+    claimSummary: { feesUsd: 0, rewardsUsd: 0 },
     totalValue: 6281.39,
     groups: [
       {
-        kind: "Liquidity",
+        kind: DefiGroupKind.Liquidity,
         walletShort: "tEsT1...j51nd",
         value: 6281.39,
         rows: [
@@ -318,10 +362,11 @@ const DEFI_POSITIONS: DefiProtocolBlock[] = [
     protocolId: "metapool",
     protocolName: "META POOL",
     protocolHref: "https://metapool.app",
+    claimSummary: { feesUsd: 0, rewardsUsd: 0 },
     totalValue: 6281.39,
     groups: [
       {
-        kind: "Staking",
+        kind: DefiGroupKind.Staking,
         walletShort: "tEsT1...j51nd",
         value: 6281.39,
         rows: [
@@ -365,9 +410,9 @@ function networkProtocolMatches(network: Network) {
 }
 
 function categoryToDefiKind(category: string): DefiGroupKind {
-  if (category === "Lending") return "Lending";
-  if (category === "Staking") return "Staking";
-  return "Liquidity";
+  if (category === "Lending") return DefiGroupKind.Lending;
+  if (category === "Staking") return DefiGroupKind.Staking;
+  return DefiGroupKind.Liquidity;
 }
 
 function buildNetworkPortfolio(network: Network, index: number): PortfolioMock {
@@ -420,6 +465,7 @@ function buildNetworkPortfolio(network: Network, index: number): PortfolioMock {
       protocolId: protocol.id,
       protocolName: protocol.name.toUpperCase(),
       protocolHref: protocol.website ?? "#",
+      claimSummary: { feesUsd: 0, rewardsUsd: 0 },
       totalValue,
       groups: [
         {
@@ -434,7 +480,7 @@ function buildNetworkPortfolio(network: Network, index: number): PortfolioMock {
               usd: totalValue,
               usdChange24h: 2.1 + protocolIndex * 0.34,
               usdChangePct24h: 0.18 + protocolIndex * 0.07,
-              yieldLabel: kind === "Staking" ? "6.8% APY" : "14.2% APR",
+              yieldLabel: kind === DefiGroupKind.Staking ? "6.8% APY" : "14.2% APR",
             },
           ],
         },
@@ -487,9 +533,11 @@ function titleFromId(value: string) {
     .join(" ");
 }
 
-function displayAmount(raw: string | undefined, decimals: number | undefined) {
+function displayAmount(raw: string | undefined, decimals: number | string | undefined) {
   if (!raw || decimals == null) return "0";
-  const value = Number(raw) / 10 ** decimals;
+  const decimalsNumber = typeof decimals === "number" ? decimals : Number(decimals);
+  if (!Number.isFinite(decimalsNumber)) return "0";
+  const value = Number(raw) / 10 ** decimalsNumber;
   if (!Number.isFinite(value)) return "0";
   if (value === 0) return "0";
   if (Math.abs(value) < 0.0001) return "<0.0001";
@@ -509,89 +557,437 @@ function tokenSymbol(token: TrackallSolanaToken | undefined, mint: string) {
   return token?.symbol?.trim() || shortenAddress(mint);
 }
 
-function positionKindToDefiKind(value: string): DefiGroupKind {
-  const normalized = value.toLowerCase();
-  if (normalized.includes("lend") || normalized.includes("borrow")) return "Lending";
-  if (normalized.includes("stake")) return "Staking";
-  return "Liquidity";
+function formatRate(rate: number) {
+  return `${rate.toFixed(2)}% APY`;
 }
 
-function yieldLabel(position: TrackallSolanaPosition, legs: TrackallPositionLeg[]) {
+function lendingSupplyFallback(
+  position: LendingDefiPosition,
+  contextLegs: readonly LendingSuppliedAsset[],
+) {
   const apy = numberFromApi(position.apy);
-  if (apy) return `${apy.toFixed(2)}% APY`;
-
-  const bestRate = legs
+  if (apy) return apy;
+  return contextLegs
     .map((leg) => numberFromApi(leg.supplyRate))
     .filter((value) => value > 0)
     .sort((a, b) => b - a)[0];
-  return bestRate ? `${bestRate.toFixed(2)}% APY` : null;
 }
 
-function positionLegRows(
-  position: TrackallSolanaPosition,
+function suppliedYieldLabel(
+  leg: LendingSuppliedAsset,
+  position: LendingDefiPosition,
+  fallbackLegs: readonly LendingSuppliedAsset[],
+) {
+  const rate = numberFromApi(leg.supplyRate) || lendingSupplyFallback(position, fallbackLegs);
+  return rate ? formatRate(rate) : null;
+}
+
+function borrowedYieldLabel(leg: LendingBorrowedAsset, position: LendingDefiPosition) {
+  const rate = numberFromApi(leg.borrowRate) || numberFromApi(position.apy);
+  return rate ? formatRate(rate) : null;
+}
+
+function stakedYieldLabel(leg: StakedAsset, position: StakingDefiPosition) {
+  const rate = numberFromApi(leg.rewardRate) || numberFromApi(position.apy);
+  return rate ? formatRate(rate) : null;
+}
+
+function positiveClaimLabels(labels: DefiClaimLabel[]) {
+  const result = labels.filter((label) => label.value > 0);
+  return result.length > 0 ? result : undefined;
+}
+
+function claimLabelFromLeg(kind: DefiClaimLabel["kind"], leg: PositionValue | undefined) {
+  if (!leg) return undefined;
+  return positiveClaimLabels([{ kind, value: numberFromApi(leg.usdValue) }]);
+}
+
+function legToRow(
+  leg: PositionValue,
+  position: { pctUsdValueChange24?: string },
+  tokenByMint: Map<string, TrackallSolanaToken>,
+  options: {
+    claimLabels?: DefiClaimLabel[];
+    yieldLabel: string | null;
+    yieldNegative?: boolean;
+  },
+): DefiPositionRow {
+  const pct = numberFromApi(position.pctUsdValueChange24);
+  const mint = leg.amount?.token ?? "";
+  const token = mint ? tokenByMint.get(mint) : undefined;
+  const symbol = mint ? tokenSymbol(token, mint) : "Asset";
+  const usd = numberFromApi(leg.usdValue);
+  return {
+    asset: symbol,
+    balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
+    claimLabels: positiveClaimLabels(options.claimLabels ?? []),
+    logoUrl: token?.image,
+    tokens: [{ symbol, logoUrl: token?.image }],
+    usd,
+    usdChange24h: usd * (pct / 100),
+    usdChangePct24h: pct,
+    yieldLabel: options.yieldLabel,
+    yieldNegative: options.yieldNegative,
+  };
+}
+
+function suppliedLegsToRows(
+  legs: readonly LendingSuppliedAsset[],
+  position: LendingDefiPosition,
+  tokenByMint: Map<string, TrackallSolanaToken>,
+  yieldContextLegs: readonly LendingSuppliedAsset[] = legs,
+): DefiPositionRow[] {
+  return legs.map((leg) =>
+    legToRow(leg, position, tokenByMint, {
+      yieldLabel: suppliedYieldLabel(leg, position, yieldContextLegs),
+    }),
+  );
+}
+
+function borrowedLegsToRows(
+  legs: readonly LendingBorrowedAsset[],
+  position: LendingDefiPosition,
   tokenByMint: Map<string, TrackallSolanaToken>,
 ): DefiPositionRow[] {
-  const directLegs = [
-    ...(position.supplied ?? []),
-    ...(position.borrowed ?? []),
-    ...(position.staked ?? []),
-    ...(position.rewards ?? []),
-  ];
-  if (directLegs.length > 0) {
-    return directLegs.map((leg) => {
-      const mint = leg.amount?.token ?? "";
-      const token = mint ? tokenByMint.get(mint) : undefined;
-      const symbol = mint ? tokenSymbol(token, mint) : "Asset";
-      const usd = numberFromApi(leg.usdValue);
-      return {
-        asset: symbol,
-        balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
-        logoUrl: token?.image,
-        usd,
-        usdChange24h: usd * (numberFromApi(position.pctUsdValueChange24) / 100),
-        usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
-        yieldLabel: yieldLabel(position, directLegs),
-      };
-    });
-  }
+  return legs.map((leg) =>
+    legToRow(leg, position, tokenByMint, {
+      yieldLabel: borrowedYieldLabel(leg, position),
+      yieldNegative: true,
+    }),
+  );
+}
 
-  const poolTokens = position.poolTokens ?? [];
-  if (poolTokens.length > 0) {
-    const labels = poolTokens.map((leg) => {
-      const mint = leg.amount?.token ?? "";
-      const symbol = mint ? tokenSymbol(tokenByMint.get(mint), mint) : "Asset";
-      return {
-        balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
-        logoUrl: tokenByMint.get(mint)?.image,
-        symbol,
-      };
-    });
-    const feeUsd = (position.fees ?? []).reduce((total, leg) => total + numberFromApi(leg.usdValue), 0);
-    const feeLabel = feeUsd > 0 ? `fees ${formatUsd(feeUsd)}` : null;
-    return [
-      {
-        asset: labels.map((item) => item.symbol).join(" — "),
-        balance: labels[0]?.balance ?? "0",
-        altBalance: [labels[1]?.balance, feeLabel].filter(Boolean).join(" · ") || undefined,
-        logoUrl: labels[0]?.logoUrl,
-        usd: numberFromApi(position.usdValue),
-        usdChange24h: numberFromApi(position.usdValue) * (numberFromApi(position.pctUsdValueChange24) / 100),
-        usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
-        yieldLabel: position.feeBps ? `${numberFromApi(position.feeBps).toFixed(0)} bps fee` : null,
-      },
-    ];
-  }
+function stakedLegsToRows(
+  legs: readonly StakedAsset[],
+  position: StakingDefiPosition,
+  tokenByMint: Map<string, TrackallSolanaToken>,
+): DefiPositionRow[] {
+  return legs.map((leg) =>
+    legToRow(leg, position, tokenByMint, {
+      yieldLabel: stakedYieldLabel(leg, position),
+    }),
+  );
+}
 
-  return [
-    {
-      asset: titleFromId(position.positionKind),
-      balance: position.poolAddress ? shortenAddress(position.poolAddress) : "Position",
-      usd: numberFromApi(position.usdValue),
-      usdChange24h: numberFromApi(position.usdValue) * (numberFromApi(position.pctUsdValueChange24) / 100),
-      usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
-      yieldLabel: yieldLabel(position, []),
+function stakedClaimableRewardRows(
+  legs: readonly StakedAsset[],
+  position: StakingDefiPosition,
+  tokenByMint: Map<string, TrackallSolanaToken>,
+) {
+  return genericLegsToRows(
+    legs
+      .map((leg) => leg.claimableReward)
+      .filter((leg): leg is PositionValue => leg !== undefined),
+    position,
+    tokenByMint,
+    null,
+    "rewards",
+  );
+}
+
+function genericLegsToRows(
+  legs: readonly PositionValue[],
+  position: { pctUsdValueChange24?: string },
+  tokenByMint: Map<string, TrackallSolanaToken>,
+  yieldLabel: string | null = null,
+  claimKind?: DefiClaimLabel["kind"],
+): DefiPositionRow[] {
+  return legs.map((leg) =>
+    legToRow(leg, position, tokenByMint, {
+      claimLabels: claimKind ? claimLabelFromLeg(claimKind, leg) : undefined,
+      yieldLabel,
+    }),
+  );
+}
+
+function sumLegsUsd(legs: readonly PositionValue[] | undefined) {
+  return (legs ?? []).reduce((total, leg) => total + numberFromApi(leg.usdValue), 0);
+}
+
+function claimSummaryFromGroups(groups: readonly DefiPositionGroup[]) {
+  return groups.reduce(
+    (summary, group) => {
+      for (const row of group.rows) {
+        for (const label of row.claimLabels ?? []) {
+          if (label.kind === "fees") summary.feesUsd += label.value;
+          if (label.kind === "rewards") summary.rewardsUsd += label.value;
+        }
+      }
+      return summary;
     },
-  ];
+    { feesUsd: 0, rewardsUsd: 0 },
+  );
+}
+
+function claimGroup(
+  kind: typeof DefiGroupKind.Rewards | typeof DefiGroupKind.Fees,
+  rows: DefiPositionRow[],
+  walletAddress: string,
+): DefiPositionGroup | null {
+  if (rows.length === 0) return null;
+  return {
+    kind,
+    rows,
+    value: rows.reduce((total, row) => total + row.usd, 0),
+    walletShort: walletAddress,
+  };
+}
+
+function liquidityPoolRow(
+  position: LiquidityDefiPosition,
+  tokenByMint: Map<string, TrackallSolanaToken>,
+): DefiPositionRow {
+  const poolLabels = position.poolTokens.map((leg) => {
+    const mint = leg.amount?.token ?? "";
+    const symbol = mint ? tokenSymbol(tokenByMint.get(mint), mint) : "Asset";
+    return {
+      balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
+      logoUrl: tokenByMint.get(mint)?.image,
+      mint,
+      symbol,
+    };
+  });
+  const liquidityApyNumber = numberFromApi(position.liquidityApy);
+  const yieldLabel = liquidityApyNumber
+    ? formatRate(liquidityApyNumber)
+    : position.feeBps
+      ? `${numberFromApi(position.feeBps).toFixed(0)} bps fee`
+      : null;
+  return {
+    asset: poolLabels.map((item) => item.symbol).join(" — "),
+    balance: poolLabels[0]?.balance ?? "0",
+    balanceLines: poolLabels.map((label) => label.balance),
+    logoUrl: poolLabels[0]?.logoUrl,
+    tokens: poolLabels.map((label) => ({ symbol: label.symbol, logoUrl: label.logoUrl })),
+    usd: numberFromApi(position.usdValue),
+    usdChange24h: numberFromApi(position.usdValue) * (numberFromApi(position.pctUsdValueChange24) / 100),
+    usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
+    yieldLabel,
+  };
+}
+
+function fallbackPositionRow(
+  position: TrackallSolanaPosition,
+  poolAddress: string | undefined,
+): DefiPositionRow {
+  return {
+    asset: titleFromId(position.positionKind),
+    balance: poolAddress ? shortenAddress(poolAddress) : "Position",
+    usd: numberFromApi(position.usdValue),
+    usdChange24h: numberFromApi(position.usdValue) * (numberFromApi(position.pctUsdValueChange24) / 100),
+    usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
+    yieldLabel: null,
+  };
+}
+
+function buildPositionGroups(
+  position: TrackallSolanaPosition,
+  positionIndex: number,
+  walletAddress: string,
+  tokenByMint: Map<string, TrackallSolanaToken>,
+): DefiPositionGroup[] {
+  switch (position.positionKind) {
+    case "lending": {
+      const supplied = position.supplied ?? [];
+      const borrowed = position.borrowed ?? [];
+      const rewardRows = genericLegsToRows(position.rewards ?? [], position, tokenByMint, null, "rewards");
+      const isPaired = supplied.length > 0 && borrowed.length > 0;
+      const pairKey = isPaired ? `${position.platformId}:${positionIndex}` : undefined;
+      const groups: DefiPositionGroup[] = [];
+      if (supplied.length > 0) {
+        const supplyContext = [...supplied];
+        const rows = suppliedLegsToRows(supplied, position, tokenByMint, supplyContext);
+        groups.push({
+          kind: isPaired ? DefiGroupKind.Supplied : DefiGroupKind.Lending,
+          rows,
+          value: rows.reduce((total, row) => total + row.usd, 0),
+          walletShort: walletAddress,
+          pairKey,
+        });
+      }
+      if (borrowed.length > 0) {
+        const rows = borrowedLegsToRows(borrowed, position, tokenByMint);
+        groups.push({
+          kind: DefiGroupKind.Borrowing,
+          rows,
+          value: rows.reduce((total, row) => total + row.usd, 0),
+          walletShort: walletAddress,
+          pairKey,
+        });
+      }
+      const rewardsGroup = claimGroup(DefiGroupKind.Rewards, rewardRows, walletAddress);
+      if (rewardsGroup) groups.push(rewardsGroup);
+      if (groups.length === 0) {
+        groups.push({
+          kind: DefiGroupKind.Lending,
+          rows: [fallbackPositionRow(position, undefined)],
+          value: numberFromApi(position.usdValue),
+          walletShort: walletAddress,
+        });
+      }
+      return groups;
+    }
+    case "staking": {
+      const staked = position.staked ?? [];
+      const rewardRows = [
+        ...stakedClaimableRewardRows(staked, position, tokenByMint),
+        ...genericLegsToRows(position.rewards ?? [], position, tokenByMint, null, "rewards"),
+      ];
+      const groups: DefiPositionGroup[] = [];
+      if (staked.length > 0) {
+        const rows = stakedLegsToRows(staked, position, tokenByMint);
+        groups.push({
+          kind: DefiGroupKind.Staking,
+          rows,
+          value: rows.reduce((total, row) => total + row.usd, 0),
+          walletShort: walletAddress,
+        });
+      }
+      const rewardsGroup = claimGroup(DefiGroupKind.Rewards, rewardRows, walletAddress);
+      if (rewardsGroup) groups.push(rewardsGroup);
+      if (groups.length === 0) {
+        groups.push({
+          kind: DefiGroupKind.Staking,
+          rows: [fallbackPositionRow(position, undefined)],
+          value: numberFromApi(position.usdValue) || numberFromApi(position.totalStakedUsd),
+          walletShort: walletAddress,
+        });
+      }
+      return groups;
+    }
+    case "liquidity": {
+      const rows: DefiPositionRow[] = [];
+      if (position.poolTokens.length > 0) {
+        rows.push(liquidityPoolRow(position, tokenByMint));
+      } else {
+        rows.push(fallbackPositionRow(position, position.poolAddress));
+      }
+      const groups: DefiPositionGroup[] = [
+        {
+          kind: DefiGroupKind.Liquidity,
+          rows,
+          value: numberFromApi(position.usdValue) || sumLegsUsd(position.poolTokens),
+          walletShort: walletAddress,
+        },
+      ];
+      const feesGroup = claimGroup(
+        DefiGroupKind.Fees,
+        genericLegsToRows(position.fees ?? [], position, tokenByMint, null, "fees"),
+        walletAddress,
+      );
+      if (feesGroup) groups.push(feesGroup);
+      const rewardsGroup = claimGroup(
+        DefiGroupKind.Rewards,
+        genericLegsToRows(position.rewards ?? [], position, tokenByMint, null, "rewards"),
+        walletAddress,
+      );
+      if (rewardsGroup) groups.push(rewardsGroup);
+      return groups;
+    }
+    case "reward": {
+      const rewardLegs = [...(position.claimable ?? []), ...(position.rewards ?? [])];
+      const rows =
+        rewardLegs.length > 0
+          ? genericLegsToRows(rewardLegs, position, tokenByMint, null, "rewards")
+          : [fallbackPositionRow(position, undefined)];
+      return [
+        {
+          kind: DefiGroupKind.Rewards,
+          rows,
+          value:
+            numberFromApi(position.usdValue) || rows.reduce((total, row) => total + row.usd, 0),
+          walletShort: walletAddress,
+        },
+      ];
+    }
+    case "vesting": {
+      const vestingLegs = [...(position.vesting ?? []), ...(position.claimable ?? [])];
+      const rewardRows = genericLegsToRows(position.rewards ?? [], position, tokenByMint, null, "rewards");
+      const groups: DefiPositionGroup[] = [];
+      if (vestingLegs.length > 0) {
+        const rows = genericLegsToRows(vestingLegs, position, tokenByMint);
+        groups.push({
+          kind: DefiGroupKind.Staking,
+          rows,
+          value:
+            numberFromApi(position.usdValue) || rows.reduce((total, row) => total + row.usd, 0),
+          walletShort: walletAddress,
+        });
+      }
+      const rewardsGroup = claimGroup(DefiGroupKind.Rewards, rewardRows, walletAddress);
+      if (rewardsGroup) groups.push(rewardsGroup);
+      if (groups.length === 0) {
+        groups.push({
+          kind: DefiGroupKind.Staking,
+          rows: [fallbackPositionRow(position, undefined)],
+          value: numberFromApi(position.usdValue),
+          walletShort: walletAddress,
+        });
+      }
+      return groups;
+    }
+    case "trading": {
+      const deposited = position.deposited ?? [];
+      const rewardRows = genericLegsToRows(position.rewards ?? [], position, tokenByMint, null, "rewards");
+      const groups: DefiPositionGroup[] = [];
+      if (deposited.length > 0) {
+        const rows = genericLegsToRows(deposited, position, tokenByMint);
+        groups.push({
+          kind: DefiGroupKind.Liquidity,
+          rows,
+          value:
+            numberFromApi(position.usdValue) || rows.reduce((total, row) => total + row.usd, 0),
+          walletShort: walletAddress,
+        });
+      }
+      const rewardsGroup = claimGroup(DefiGroupKind.Rewards, rewardRows, walletAddress);
+      if (rewardsGroup) groups.push(rewardsGroup);
+      if (groups.length === 0) {
+        groups.push({
+          kind: DefiGroupKind.Liquidity,
+          rows: [fallbackPositionRow(position, undefined)],
+          value: numberFromApi(position.usdValue),
+          walletShort: walletAddress,
+        });
+      }
+      return groups;
+    }
+  }
+}
+
+function positionNetValue(position: TrackallSolanaPosition): number {
+  const top = numberFromApi(position.usdValue);
+  if (top) return top;
+  switch (position.positionKind) {
+    case "lending":
+      return (
+        sumLegsUsd(position.supplied) -
+        sumLegsUsd(position.borrowed) +
+        sumLegsUsd(position.rewards)
+      );
+    case "staking":
+      return (
+        sumLegsUsd(position.staked) +
+        sumLegsUsd(position.rewards) +
+        numberFromApi(position.totalStakedUsd)
+      );
+    case "liquidity":
+      return (
+        sumLegsUsd(position.poolTokens) +
+        sumLegsUsd(position.fees) +
+        sumLegsUsd(position.rewards)
+      );
+    case "reward":
+      return sumLegsUsd(position.claimable) + sumLegsUsd(position.rewards);
+    case "vesting":
+      return (
+        sumLegsUsd(position.vesting) +
+        sumLegsUsd(position.claimable) +
+        sumLegsUsd(position.rewards)
+      );
+    case "trading":
+      return sumLegsUsd(position.deposited) + sumLegsUsd(position.rewards);
+  }
 }
 
 function protocolMetadata(platformId: string, protocols: Protocol[]) {
@@ -609,10 +1005,10 @@ export function mapTrackallPortfolioToViewModel({
   tokens: TrackallSolanaToken[];
   walletAddress: string;
 }): PortfolioMock {
-  const tokenByMint = new Map(tokens.map((token) => [token.mint, token]));
+  const tokenByMint = new Map(tokens.map((token) => [token.mintAddress, token]));
   const mappedTokens = tokens
     .map<TokenHolding>((token, index) => {
-      const symbol = token.symbol?.trim() || shortenAddress(token.mint);
+      const symbol = token.symbol?.trim() || shortenAddress(token.mintAddress);
       const usdValue = numberFromApi(token.usdValue);
       const priceChangePct24h = numberFromApi(token.pctPriceChange24h);
       return {
@@ -623,7 +1019,7 @@ export function mapTrackallPortfolioToViewModel({
         price: numberFromApi(token.priceUsd),
         priceChangePct24h,
         symbol,
-        tokenId: `${token.mint}:${token.tokenAccount ?? ""}`,
+        tokenId: `${token.mintAddress}:${token.tokenAccount ?? ""}`,
         usdValue,
         usdValueChange24h: usdValue * (priceChangePct24h / 100),
         usdValueChangePct24h: priceChangePct24h,
@@ -633,26 +1029,32 @@ export function mapTrackallPortfolioToViewModel({
     .sort((a, b) => b.usdValue - a.usdValue);
 
   const groupsByProtocol = new Map<string, DefiPositionGroup[]>();
-  for (const position of positions) {
-    const rows = positionLegRows(position, tokenByMint);
-    const value = numberFromApi(position.usdValue) || rows.reduce((total, row) => total + row.usd, 0);
-    const group: DefiPositionGroup = {
-      kind: positionKindToDefiKind(position.positionKind),
-      rows,
-      value,
-      walletShort: walletAddress,
-    };
-
+  const netValueByProtocol = new Map<string, number>();
+  const netChange24hByProtocol = new Map<string, number>();
+  for (const [positionIndex, position] of positions.entries()) {
+    const newGroups = buildPositionGroups(position, positionIndex, walletAddress, tokenByMint);
     const groups = groupsByProtocol.get(position.platformId) ?? [];
-    groups.push(group);
+    groups.push(...newGroups);
     groupsByProtocol.set(position.platformId, groups);
+
+    const netValue = positionNetValue(position);
+    netValueByProtocol.set(
+      position.platformId,
+      (netValueByProtocol.get(position.platformId) ?? 0) + netValue,
+    );
+    const pct = numberFromApi(position.pctUsdValueChange24);
+    netChange24hByProtocol.set(
+      position.platformId,
+      (netChange24hByProtocol.get(position.platformId) ?? 0) + netValue * (pct / 100),
+    );
   }
 
   const defiPositions = Array.from(groupsByProtocol.entries())
     .map<DefiProtocolBlock>(([platformId, groups]) => {
       const metadata = protocolMetadata(platformId, protocols);
-      const totalValue = groups.reduce((total, group) => total + group.value, 0);
+      const totalValue = netValueByProtocol.get(platformId) ?? 0;
       return {
+        claimSummary: claimSummaryFromGroups(groups),
         groups,
         protocolHref: metadata?.website ?? "#",
         protocolId: platformId,
@@ -677,12 +1079,7 @@ export function mapTrackallPortfolioToViewModel({
   const netWorthChange24h =
     mappedTokens.reduce((total, token) => total + token.usdValueChange24h, 0) +
     defiPositions.reduce(
-      (total, protocol) =>
-        total +
-        protocol.groups.reduce(
-          (groupTotal, group) => groupTotal + group.rows.reduce((rowTotal, row) => rowTotal + row.usdChange24h, 0),
-          0,
-        ),
+      (total, protocol) => total + (netChange24hByProtocol.get(protocol.protocolId) ?? 0),
       0,
     );
 

@@ -1,23 +1,52 @@
+import type {
+  ConcentratedRangeLiquidityDefiPosition,
+  ConstantProductLiquidityDefiPosition,
+  LendingBorrowedAsset,
+  LendingDefiPosition,
+  LendingSuppliedAsset,
+  LiquidityDefiPosition,
+  LiquidityModel,
+  PlatformTag,
+  PositionKind,
+  PositionMetadata,
+  PositionValue,
+  RewardDefiPosition,
+  SolanaPlatformWithActiveUsers,
+  StakedAsset,
+  StakingDefiPosition,
+  TokenAmount,
+  TokenData,
+  TradingAccountMetrics,
+  TradingDefiPosition,
+  TradingMarketPosition,
+  TradingMarketType,
+  TradingOrder,
+  TradingPositionStatus,
+  TradingSide,
+  TradingTrigger,
+  UserDefiPosition,
+  VestingAsset,
+  VestingDefiPosition,
+} from "@nightlylabs/trackall-sdk";
 import { NETWORKS } from "./networks";
 import type { Protocol, ProtocolCategory } from "./types";
 
-export type TrackallPlatform = {
-  activeUsers: number;
-  defiLlamaId?: string;
-  description: string;
-  id: string;
-  image: string;
-  links?: {
-    website?: string;
-  };
-  location?: {
-    latitude: number;
-    longitude: number;
-  };
-  name: string;
-  networks: string[];
+export type {
+  LendingBorrowedAsset,
+  LendingDefiPosition,
+  LendingSuppliedAsset,
+  LiquidityDefiPosition,
+  PositionValue,
+  RewardDefiPosition,
+  StakedAsset,
+  StakingDefiPosition,
+  TokenAmount,
+  UserDefiPosition,
+  VestingDefiPosition,
+} from "@nightlylabs/trackall-sdk";
+
+export type TrackallPlatform = SolanaPlatformWithActiveUsers & {
   programIds: string[];
-  tags: string[];
 };
 
 export type TrackallApiConfig = {
@@ -25,41 +54,7 @@ export type TrackallApiConfig = {
   baseUrl?: string;
 };
 
-export type TrackallAmount = {
-  amount: string;
-  decimals: number;
-  token: string;
-};
-
-export type TrackallPositionLeg = {
-  amount?: TrackallAmount;
-  priceUsd?: number | string;
-  supplyRate?: number | string;
-  usdValue?: number | string;
-};
-
-export type TrackallSolanaPosition = {
-  apy?: number | string;
-  borrowed?: TrackallPositionLeg[];
-  currentPriceUsd?: number | string;
-  feeBps?: number | string;
-  fees?: TrackallPositionLeg[];
-  isActive?: boolean;
-  liquidityModel?: string;
-  lowerPriceUsd?: number | string;
-  meta?: Record<string, unknown>;
-  platformId: string;
-  poolAddress?: string;
-  poolTokens?: TrackallPositionLeg[];
-  positionKind: string;
-  rewards?: TrackallPositionLeg[];
-  staked?: TrackallPositionLeg[];
-  supplied?: TrackallPositionLeg[];
-  totalStakedUsd?: number | string;
-  upperPriceUsd?: number | string;
-  usdValue?: number | string;
-  pctUsdValueChange24?: number | string;
-};
+export type TrackallSolanaPosition = UserDefiPosition;
 
 export type TrackallSolanaPositionCache = {
   address: string | null;
@@ -67,23 +62,31 @@ export type TrackallSolanaPositionCache = {
   positions: TrackallSolanaPosition[];
 };
 
-export type TrackallSolanaToken = {
-  amount?: string;
-  decimals?: number;
-  image?: string;
-  mint: string;
-  name?: string;
-  pctPriceChange24h?: number | string;
-  priceUsd?: number | string;
-  symbol?: string;
-  tokenAccount?: string;
-  uiAmount?: number | string;
-  usdValue?: number | string;
-};
+export type TrackallSolanaToken = Pick<TokenData, "mintAddress"> &
+  Partial<Omit<TokenData, "mintAddress">> & {
+    tokenAccount?: string;
+    amount?: string;
+    uiAmount?: number | string;
+    usdValue?: number | string;
+  };
 
 const DEFAULT_TRACKALL_API_URL = "https://trackall.nightly.app/";
 const SOLANA_HUB = NETWORKS.find((network) => network.id === "solana") ?? NETWORKS[0]!;
 const API_REFRESH_MS = 60_000;
+
+const PLATFORM_TAGS = new Set<PlatformTag>([
+  "dex",
+  "lending",
+  "stablecoin",
+  "cefi",
+  "defi",
+  "nft",
+  "cex",
+  "wallet",
+  "bridge",
+  "staking",
+  "governance",
+]);
 
 function normalizeBaseUrl(value: string | undefined) {
   const raw = value?.trim() || DEFAULT_TRACKALL_API_URL;
@@ -106,89 +109,395 @@ function readStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-function readNumberLike(value: unknown): number | string | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") return value;
+function readDecimalString(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return undefined;
 }
 
-function parseAmount(value: unknown): TrackallAmount | undefined {
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function parseAmount(value: unknown): TokenAmount | undefined {
   if (!isRecord(value)) return undefined;
   const token = readString(value.token);
   const amount = readString(value.amount);
-  const decimals =
-    typeof value.decimals === "number"
-      ? value.decimals
-      : typeof value.decimals === "string"
-        ? Number(value.decimals)
-        : NaN;
-  if (!token || !amount || !Number.isFinite(decimals)) return undefined;
+  const decimals = readDecimalString(value.decimals);
+  if (!token || !amount || decimals === undefined) return undefined;
   return { amount, decimals, token };
 }
 
-function parsePositionLeg(value: unknown): TrackallPositionLeg | null {
+function parsePositionValue(value: unknown): PositionValue | null {
   if (!isRecord(value)) return null;
+  const amount = parseAmount(value.amount);
+  if (!amount) return null;
   return {
-    amount: parseAmount(value.amount),
-    priceUsd: readNumberLike(value.priceUsd),
-    supplyRate: readNumberLike(value.supplyRate),
-    usdValue: readNumberLike(value.usdValue),
+    amount,
+    pctUsdValueChange24: readDecimalString(value.pctUsdValueChange24),
+    priceUsd: readDecimalString(value.priceUsd),
+    usdValue: readDecimalString(value.usdValue),
   };
 }
 
-function readPositionLegs(value: unknown) {
-  return Array.isArray(value)
-    ? value.map(parsePositionLeg).filter((item): item is TrackallPositionLeg => item !== null)
-    : undefined;
+function parsePositionValues(value: unknown): PositionValue[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value
+    .map(parsePositionValue)
+    .filter((item): item is PositionValue => item !== null);
+  return result.length > 0 ? result : undefined;
 }
+
+function parseLendingSuppliedAsset(value: unknown): LendingSuppliedAsset | null {
+  const base = parsePositionValue(value);
+  if (!base || !isRecord(value)) return null;
+  return {
+    ...base,
+    collateralFactor: readDecimalString(value.collateralFactor),
+    supplyRate: readDecimalString(value.supplyRate),
+  };
+}
+
+function parseLendingSuppliedAssets(value: unknown): LendingSuppliedAsset[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value
+    .map(parseLendingSuppliedAsset)
+    .filter((item): item is LendingSuppliedAsset => item !== null);
+  return result.length > 0 ? result : undefined;
+}
+
+function parseLendingBorrowedAsset(value: unknown): LendingBorrowedAsset | null {
+  const base = parsePositionValue(value);
+  if (!base || !isRecord(value)) return null;
+  return {
+    ...base,
+    borrowRate: readDecimalString(value.borrowRate),
+    maintenanceRatio: readDecimalString(value.maintenanceRatio),
+  };
+}
+
+function parseLendingBorrowedAssets(value: unknown): LendingBorrowedAsset[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value
+    .map(parseLendingBorrowedAsset)
+    .filter((item): item is LendingBorrowedAsset => item !== null);
+  return result.length > 0 ? result : undefined;
+}
+
+function parseStakedAsset(value: unknown): StakedAsset | null {
+  const base = parsePositionValue(value);
+  if (!base || !isRecord(value)) return null;
+  const claimableRaw = parsePositionValue(value.claimableReward);
+  return {
+    ...base,
+    claimableReward: claimableRaw ?? undefined,
+    cooldownPeriod: readDecimalString(value.cooldownPeriod),
+    rewardRate: readDecimalString(value.rewardRate),
+  };
+}
+
+function parseStakedAssets(value: unknown): StakedAsset[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value
+    .map(parseStakedAsset)
+    .filter((item): item is StakedAsset => item !== null);
+  return result.length > 0 ? result : undefined;
+}
+
+function parseVestingAsset(value: unknown): VestingAsset | null {
+  const base = parsePositionValue(value);
+  if (!base || !isRecord(value)) return null;
+  return {
+    ...base,
+    claimable: parsePositionValue(value.claimable) ?? undefined,
+    claimed: parsePositionValue(value.claimed) ?? undefined,
+  };
+}
+
+function parseVestingAssets(value: unknown): VestingAsset[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value
+    .map(parseVestingAsset)
+    .filter((item): item is VestingAsset => item !== null);
+  return result.length > 0 ? result : undefined;
+}
+
+function parseTradingTrigger(value: unknown): TradingTrigger | null {
+  if (!isRecord(value)) return null;
+  const price = readDecimalString(value.price);
+  const condition = value.condition === "above" || value.condition === "below" ? value.condition : null;
+  if (!price || !condition) return null;
+  return { condition, price };
+}
+
+function parseTradingOrder(value: unknown): TradingOrder | null {
+  if (!isRecord(value)) return null;
+  const side = value.side === "buy" || value.side === "sell" ? (value.side as TradingSide) : null;
+  const selling = parsePositionValue(value.selling);
+  const buying = parsePositionValue(value.buying);
+  if (!side || !selling || !buying) return null;
+  const status = (() => {
+    const candidates: TradingPositionStatus[] = ["open", "partially-filled", "filled", "cancelled"];
+    return candidates.includes(value.status as TradingPositionStatus)
+      ? (value.status as TradingPositionStatus)
+      : undefined;
+  })();
+  const triggers = Array.isArray(value.triggers)
+    ? value.triggers.map(parseTradingTrigger).filter((trigger): trigger is TradingTrigger => trigger !== null)
+    : undefined;
+  return {
+    buying,
+    filledFraction: readDecimalString(value.filledFraction),
+    limitPrice: readDecimalString(value.limitPrice),
+    selling,
+    side,
+    status,
+    triggers: triggers && triggers.length > 0 ? triggers : undefined,
+  };
+}
+
+function parseTradingMarketPosition(value: unknown): TradingMarketPosition | null {
+  if (!isRecord(value)) return null;
+  const side = value.side === "long" || value.side === "short" ? value.side : undefined;
+  return {
+    collateral: parsePositionValues(value.collateral),
+    entryPrice: readDecimalString(value.entryPrice),
+    fundingPnl: readDecimalString(value.fundingPnl),
+    leverage: readDecimalString(value.leverage),
+    liquidationPrice: readDecimalString(value.liquidationPrice),
+    markPrice: readDecimalString(value.markPrice),
+    notionalUsd: readDecimalString(value.notionalUsd),
+    realizedPnl: readDecimalString(value.realizedPnl),
+    side,
+    size: parsePositionValue(value.size) ?? undefined,
+    unrealizedPnl: readDecimalString(value.unrealizedPnl),
+  };
+}
+
+function parseTradingAccountMetrics(value: unknown): TradingAccountMetrics | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    healthFactor: readDecimalString(value.healthFactor),
+    initialMarginRatio: readDecimalString(value.initialMarginRatio),
+    leverage: readDecimalString(value.leverage),
+    maintenanceMarginRatio: readDecimalString(value.maintenanceMarginRatio),
+  };
+}
+
+function parsePositionMetadata(value: unknown): PositionMetadata | undefined {
+  if (!isRecord(value)) return undefined;
+  const result: PositionMetadata = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (isRecord(entry)) result[key] = entry;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function parseBaseFields(value: Record<string, unknown>) {
+  return {
+    meta: parsePositionMetadata(value.meta),
+    pctUsdValueChange24: readDecimalString(value.pctUsdValueChange24),
+    rewards: parsePositionValues(value.rewards),
+    usdValue: readDecimalString(value.usdValue),
+  };
+}
+
+function parseLendingPosition(value: Record<string, unknown>, platformId: string): LendingDefiPosition {
+  return {
+    ...parseBaseFields(value),
+    apy: readDecimalString(value.apy),
+    borrowed: parseLendingBorrowedAssets(value.borrowed),
+    healthFactor: readDecimalString(value.healthFactor),
+    platformId,
+    positionKind: "lending",
+    supplied: parseLendingSuppliedAssets(value.supplied),
+  };
+}
+
+function parseStakingPosition(value: Record<string, unknown>, platformId: string): StakingDefiPosition {
+  return {
+    ...parseBaseFields(value),
+    apy: readDecimalString(value.apy),
+    lockDuration: readDecimalString(value.lockDuration),
+    lockedUntil: readString(value.lockedUntil) ?? undefined,
+    platformId,
+    positionKind: "staking",
+    staked: parseStakedAssets(value.staked),
+    totalStakedUsd: readDecimalString(value.totalStakedUsd),
+    unbonding: parsePositionValues(value.unbonding),
+  };
+}
+
+function parseLiquidityPosition(
+  value: Record<string, unknown>,
+  platformId: string,
+): LiquidityDefiPosition | null {
+  const liquidityModel = (() => {
+    const candidates: LiquidityModel[] = ["constant-product", "concentrated-range"];
+    return candidates.includes(value.liquidityModel as LiquidityModel)
+      ? (value.liquidityModel as LiquidityModel)
+      : null;
+  })();
+  if (!liquidityModel) return null;
+
+  const poolTokens = parsePositionValues(value.poolTokens) ?? [];
+  const base = {
+    ...parseBaseFields(value),
+    fees: parsePositionValues(value.fees),
+    feeBps: readDecimalString(value.feeBps),
+    liquidityApy: readDecimalString(value.liquidityApy),
+    platformId,
+    poolAddress: readString(value.poolAddress) ?? undefined,
+    poolTokens,
+  };
+
+  if (liquidityModel === "constant-product") {
+    const result: ConstantProductLiquidityDefiPosition = {
+      ...base,
+      liquidityModel,
+      lpTokenAmount: readDecimalString(value.lpTokenAmount),
+      positionKind: "liquidity",
+    };
+    return result;
+  }
+
+  const lower = readDecimalString(value.lowerPriceUsd);
+  const upper = readDecimalString(value.upperPriceUsd);
+  const current = readDecimalString(value.currentPriceUsd);
+  if (lower === undefined || upper === undefined || current === undefined) return null;
+  const result: ConcentratedRangeLiquidityDefiPosition = {
+    ...base,
+    currentPriceUsd: current,
+    isActive: readBoolean(value.isActive) ?? true,
+    liquidityModel,
+    lowerPriceUsd: lower,
+    positionKind: "liquidity",
+    upperPriceUsd: upper,
+  };
+  return result;
+}
+
+function parseRewardPosition(value: Record<string, unknown>, platformId: string): RewardDefiPosition {
+  return {
+    ...parseBaseFields(value),
+    claimable: parsePositionValues(value.claimable),
+    claimableFrom: readString(value.claimableFrom) ?? undefined,
+    claimed: parsePositionValues(value.claimed),
+    expiresAt: readString(value.expiresAt) ?? undefined,
+    platformId,
+    positionKind: "reward",
+    sourceId: readString(value.sourceId) ?? undefined,
+  };
+}
+
+function parseVestingPosition(value: Record<string, unknown>, platformId: string): VestingDefiPosition {
+  return {
+    ...parseBaseFields(value),
+    cliffTime: readString(value.cliffTime) ?? undefined,
+    claimable: parsePositionValues(value.claimable),
+    claimed: parsePositionValues(value.claimed),
+    endTime: readString(value.endTime) ?? undefined,
+    platformId,
+    positionKind: "vesting",
+    startTime: readString(value.startTime) ?? undefined,
+    unlockFrequencySeconds: readDecimalString(value.unlockFrequencySeconds),
+    vesting: parseVestingAssets(value.vesting),
+  };
+}
+
+function parseTradingPosition(value: Record<string, unknown>, platformId: string): TradingDefiPosition | null {
+  const marketType = (() => {
+    const candidates: TradingMarketType[] = ["spot", "perp"];
+    return candidates.includes(value.marketType as TradingMarketType)
+      ? (value.marketType as TradingMarketType)
+      : null;
+  })();
+  if (!marketType) return null;
+  const buyOrders = Array.isArray(value.buyOrders)
+    ? value.buyOrders.map(parseTradingOrder).filter((order): order is TradingOrder => order !== null)
+    : undefined;
+  const sellOrders = Array.isArray(value.sellOrders)
+    ? value.sellOrders.map(parseTradingOrder).filter((order): order is TradingOrder => order !== null)
+    : undefined;
+  const positions = Array.isArray(value.positions)
+    ? value.positions
+        .map(parseTradingMarketPosition)
+        .filter((position): position is TradingMarketPosition => position !== null)
+    : undefined;
+  return {
+    ...parseBaseFields(value),
+    account: parseTradingAccountMetrics(value.account),
+    buyOrders: buyOrders && buyOrders.length > 0 ? buyOrders : undefined,
+    deposited: parsePositionValues(value.deposited),
+    marginEnabled: readBoolean(value.marginEnabled) ?? false,
+    marketType,
+    platformId,
+    positionKind: "trading",
+    positions: positions && positions.length > 0 ? positions : undefined,
+    sellOrders: sellOrders && sellOrders.length > 0 ? sellOrders : undefined,
+  };
+}
+
+const KNOWN_POSITION_KINDS = new Set<PositionKind>([
+  "lending",
+  "staking",
+  "liquidity",
+  "trading",
+  "vesting",
+  "reward",
+]);
 
 function parseSolanaPosition(value: unknown): TrackallSolanaPosition | null {
   if (!isRecord(value)) return null;
   const platformId = readString(value.platformId);
-  const positionKind = readString(value.positionKind);
-  if (!platformId || !positionKind) return null;
+  const positionKindRaw = readString(value.positionKind);
+  if (!platformId || !positionKindRaw) return null;
+  if (!KNOWN_POSITION_KINDS.has(positionKindRaw as PositionKind)) return null;
+  const positionKind = positionKindRaw as PositionKind;
 
-  return {
-    apy: readNumberLike(value.apy),
-    borrowed: readPositionLegs(value.borrowed),
-    currentPriceUsd: readNumberLike(value.currentPriceUsd),
-    feeBps: readNumberLike(value.feeBps),
-    fees: readPositionLegs(value.fees),
-    isActive: typeof value.isActive === "boolean" ? value.isActive : undefined,
-    liquidityModel: readString(value.liquidityModel) ?? undefined,
-    lowerPriceUsd: readNumberLike(value.lowerPriceUsd),
-    meta: isRecord(value.meta) ? value.meta : undefined,
-    platformId,
-    poolAddress: readString(value.poolAddress) ?? undefined,
-    poolTokens: readPositionLegs(value.poolTokens),
-    positionKind,
-    rewards: readPositionLegs(value.rewards),
-    staked: readPositionLegs(value.staked),
-    supplied: readPositionLegs(value.supplied),
-    totalStakedUsd: readNumberLike(value.totalStakedUsd),
-    upperPriceUsd: readNumberLike(value.upperPriceUsd),
-    usdValue: readNumberLike(value.usdValue),
-    pctUsdValueChange24: readNumberLike(value.pctUsdValueChange24),
-  };
+  switch (positionKind) {
+    case "lending":
+      return parseLendingPosition(value, platformId);
+    case "staking":
+      return parseStakingPosition(value, platformId);
+    case "liquidity":
+      return parseLiquidityPosition(value, platformId);
+    case "reward":
+      return parseRewardPosition(value, platformId);
+    case "vesting":
+      return parseVestingPosition(value, platformId);
+    case "trading":
+      return parseTradingPosition(value, platformId);
+  }
 }
 
 function parseSolanaToken(value: unknown, fallbackMint?: string): TrackallSolanaToken | null {
   if (!isRecord(value)) return null;
-  const mint = readString(value.mint) ?? readString(value.mintAddress) ?? fallbackMint;
-  if (!mint) return null;
+  const mintAddress = readString(value.mintAddress) ?? readString(value.mint) ?? fallbackMint;
+  if (!mintAddress) return null;
 
   return {
     amount: readString(value.amount) ?? undefined,
     decimals: readNumber(value.decimals) ?? undefined,
     image: readString(value.image) ?? undefined,
-    mint,
+    mintAddress,
     name: readString(value.name) ?? undefined,
-    pctPriceChange24h: readNumberLike(value.pctPriceChange24h),
-    priceUsd: readNumberLike(value.priceUsd),
+    pctPriceChange24h: readNumber(value.pctPriceChange24h) ?? undefined,
+    priceUsd: readNumber(value.priceUsd) ?? undefined,
     symbol: readString(value.symbol) ?? undefined,
     tokenAccount: readString(value.tokenAccount) ?? undefined,
-    uiAmount: readNumberLike(value.uiAmount),
-    usdValue: readNumberLike(value.usdValue),
+    uiAmount:
+      typeof value.uiAmount === "number" && Number.isFinite(value.uiAmount)
+        ? value.uiAmount
+        : typeof value.uiAmount === "string"
+          ? value.uiAmount
+          : undefined,
+    usdValue:
+      typeof value.usdValue === "number" && Number.isFinite(value.usdValue)
+        ? value.usdValue
+        : typeof value.usdValue === "string"
+          ? value.usdValue
+          : undefined,
   };
 }
 
@@ -214,6 +523,10 @@ async function fetchTrackallJson(path: string, config: TrackallApiConfig, signal
   }
 
   return response.json();
+}
+
+function parsePlatformTags(value: unknown): PlatformTag[] {
+  return readStringArray(value).filter((tag): tag is PlatformTag => PLATFORM_TAGS.has(tag as PlatformTag));
 }
 
 function parsePlatform(value: unknown): TrackallPlatform | null {
@@ -248,7 +561,7 @@ function parsePlatform(value: unknown): TrackallPlatform | null {
     name: value.name,
     networks: readStringArray(value.networks),
     programIds: readStringArray(value.programIds),
-    tags: readStringArray(value.tags),
+    tags: parsePlatformTags(value.tags),
   };
 }
 
@@ -281,7 +594,7 @@ function networkName(value: string) {
     .join(" ");
 }
 
-function categoryFromTags(tags: string[]): ProtocolCategory {
+function categoryFromTags(tags: PlatformTag[]): ProtocolCategory {
   const normalized = tags.map((tag) => tag.toLowerCase());
   if (normalized.some((tag) => tag.includes("dex") || tag.includes("swap") || tag.includes("trading"))) return "DEX";
   if (normalized.some((tag) => tag.includes("lend") || tag.includes("borrow"))) return "Lending";

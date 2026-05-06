@@ -50,7 +50,8 @@ import dustyFieldSrc from "../../../../packages/ui/src/assets/figures/dusty-fiel
 import { PROTOCOLS } from "@/lib/protocols";
 import {
   type AllocationKind,
-  type DefiGroupKind,
+  DefiGroupKind,
+  type DefiPositionGroup,
   type PortfolioMock,
   formatPct,
   formatUsd,
@@ -296,12 +297,20 @@ function WalletSparkline({
 
 function defiKindClasses(kind: DefiGroupKind): string {
   switch (kind) {
-    case "Lending":
+    case DefiGroupKind.Lending:
       return "border-rose-500/40 bg-rose-500/8 text-rose-600 dark:text-rose-400";
-    case "Liquidity":
+    case DefiGroupKind.Supplied:
+      return "border-violet-500/40 bg-violet-500/8 text-violet-600 dark:text-violet-400";
+    case DefiGroupKind.Borrowing:
+      return "border-amber-500/40 bg-amber-500/8 text-amber-600 dark:text-amber-400";
+    case DefiGroupKind.Liquidity:
       return "border-emerald-500/40 bg-emerald-500/8 text-emerald-600 dark:text-emerald-400";
-    case "Staking":
+    case DefiGroupKind.Staking:
       return "border-sky-500/40 bg-sky-500/8 text-sky-600 dark:text-sky-400";
+    case DefiGroupKind.Rewards:
+      return "border-emerald-500/40 bg-emerald-500/8 text-emerald-600 dark:text-emerald-400";
+    case DefiGroupKind.Fees:
+      return "border-cyan-500/40 bg-cyan-500/8 text-cyan-600 dark:text-cyan-400";
   }
 }
 
@@ -1126,6 +1135,149 @@ function HoldingsSection({ portfolio }: { portfolio: PortfolioMock }) {
   );
 }
 
+type DefiGroupItem =
+  | { kind: "single"; group: DefiPositionGroup }
+  | { kind: "pair"; pairKey: string; supplied: DefiPositionGroup; borrowed: DefiPositionGroup };
+
+function foldGroupPairs(groups: DefiPositionGroup[]): DefiGroupItem[] {
+  const items: DefiGroupItem[] = [];
+  const consumed = new Set<number>();
+  for (let index = 0; index < groups.length; index += 1) {
+    if (consumed.has(index)) continue;
+    const group = groups[index];
+    if (group.pairKey) {
+      const partnerIndex = groups.findIndex(
+        (candidate, candidateIndex) =>
+          candidateIndex !== index &&
+          !consumed.has(candidateIndex) &&
+          candidate.pairKey === group.pairKey,
+      );
+      if (partnerIndex !== -1) {
+        const partner = groups[partnerIndex];
+        const supplied = group.kind === DefiGroupKind.Supplied ? group : partner;
+        const borrowed = group.kind === DefiGroupKind.Borrowing ? group : partner;
+        consumed.add(partnerIndex);
+        items.push({ kind: "pair", pairKey: group.pairKey, supplied, borrowed });
+        continue;
+      }
+    }
+    items.push({ kind: "single", group });
+  }
+  return items;
+}
+
+function DefiGroupHeader({
+  group,
+  compact = false,
+}: {
+  group: DefiPositionGroup;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={
+        "flex flex-wrap items-center justify-between gap-2 px-4 " +
+        (compact ? "py-2" : "border-b border-border/50 py-3")
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline" className={defiKindClasses(group.kind)}>
+          {group.kind}
+        </Badge>
+        {compact ? null : <AddressChip address={group.walletShort} />}
+      </div>
+      <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+        {formatUsd(group.value)}
+      </span>
+    </div>
+  );
+}
+
+function DefiGroupRowTable({ rows }: { rows: DefiPositionGroup["rows"] }) {
+  return (
+    <Table>
+      <TableHeader className="[&_tr]:border-border/50">
+        <TableRow>
+          <TableHead className="ps-4 text-xs font-medium text-muted-foreground">
+            Position
+          </TableHead>
+          <TableHead className="text-xs font-medium text-muted-foreground">
+            Balance
+          </TableHead>
+          <TableHead className="text-right text-xs font-medium text-muted-foreground">
+            USD Value
+          </TableHead>
+          <TableHead className="pe-4 text-right text-xs font-medium text-muted-foreground">
+            Yield
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody className="[&_tr]:border-border/50">
+        {rows.map((row, rowIndex) => (
+          <TableRow key={`${row.asset}-${rowIndex}`} className="hover:bg-muted/40">
+            <TableCell className="ps-4 font-medium text-sm">
+              <div className="flex items-center gap-3">
+                {row.tokens && row.tokens.length > 1 ? (
+                  <div className="flex items-center -space-x-2">
+                    {row.tokens.map((token) => (
+                      <TokenLogo
+                        key={`${token.symbol}-${token.logoUrl ?? ""}`}
+                        symbol={token.symbol}
+                        logoUrl={token.logoUrl}
+                        className="size-8 ring-2 ring-background"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <TokenLogo
+                    symbol={assetPrimarySymbol(row.asset)}
+                    logoUrl={row.logoUrl ?? row.tokens?.[0]?.logoUrl}
+                    className="size-8"
+                  />
+                )}
+                <div className="min-w-0">
+                  <div className="truncate">{row.asset}</div>
+                </div>
+              </div>
+            </TableCell>
+            <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
+              {row.balanceLines && row.balanceLines.length > 0 ? (
+                row.balanceLines.map((line) => <div key={line}>{line}</div>)
+              ) : (
+                <div>{row.balance}</div>
+              )}
+              {row.altBalance ? (
+                <div className="text-[11px] opacity-80">{row.altBalance}</div>
+              ) : null}
+            </TableCell>
+            <TableCell className="text-right font-mono tabular-nums">
+              <div className="text-sm">{formatUsd(row.usd)}</div>
+              <div
+                className={
+                  "text-[11px] " +
+                  deltaColorClasses(row.usdChange24h || row.usdChangePct24h)
+                }
+              >
+                {formatUsdDelta(row.usdChange24h)} ({formatPct(row.usdChangePct24h)})
+              </div>
+            </TableCell>
+            <TableCell
+              className={
+                "pe-4 text-right font-mono text-sm tabular-nums " +
+                (row.yieldNegative
+                  ? "text-rose-600 dark:text-rose-400"
+                  : "text-muted-foreground")
+              }
+            >
+              {row.yieldLabel ?? "—"}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
   const allProtocolIds = useMemo(
     () => portfolio.defiPositions.map((p) => p.protocolId),
@@ -1162,11 +1314,19 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
                 0,
               );
               const kinds = Array.from(
-                new Set(protocol.groups.map((group) => group.kind)),
+                new Set(
+                  protocol.groups.map((group) =>
+                    group.pairKey &&
+                    (group.kind === DefiGroupKind.Supplied || group.kind === DefiGroupKind.Borrowing)
+                      ? DefiGroupKind.Lending
+                      : group.kind,
+                  ),
+                ),
               );
               const wallets = Array.from(
                 new Set(protocol.groups.map((group) => group.walletShort)),
               );
+              const claimableTotal = protocol.claimSummary.feesUsd + protocol.claimSummary.rewardsUsd;
 
               return (
                 <AccordionItem
@@ -1198,8 +1358,16 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
                           </div>
                         </div>
                       </div>
-                      <div className="text-right font-mono tabular-nums">
-                        {formatUsdCompact(protocol.totalValue)}
+                      <div className="flex flex-col items-end gap-1 text-right font-mono tabular-nums">
+                        <span>{formatUsdCompact(protocol.totalValue)}</span>
+                        {claimableTotal > 0 ? (
+                          <Badge
+                            variant="outline"
+                            className="h-5 px-1.5 text-[10px] text-muted-foreground tabular-nums"
+                          >
+                            Claimable {formatUsd(claimableTotal)}
+                          </Badge>
+                        ) : null}
                       </div>
                       <div className="flex min-w-0 flex-wrap gap-1.5">
                         {kinds.map((kind) => (
@@ -1224,87 +1392,44 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
                   </AccordionTrigger>
                   <AccordionPanel className="px-5 pb-4">
                     <div className="space-y-4">
-                      {protocol.groups.map((group, groupIndex) => (
-                        <div
-                          key={`${protocol.protocolId}:${groupIndex}`}
-                          className="overflow-hidden rounded-xl border border-border/50 bg-background/35"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-border/50 border-b px-4 py-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge
-                                variant="outline"
-                                className={defiKindClasses(group.kind)}
-                              >
-                                {group.kind}
-                              </Badge>
-                              <AddressChip address={group.walletShort} />
+                      {foldGroupPairs(protocol.groups).map((item, itemIndex) => {
+                        const itemKey = `${protocol.protocolId}:${itemIndex}`;
+                        if (item.kind === "single") {
+                          return (
+                            <div
+                              key={itemKey}
+                              className="overflow-hidden rounded-xl border border-border/50 bg-background/35"
+                            >
+                              <DefiGroupHeader group={item.group} />
+                              <DefiGroupRowTable rows={item.group.rows} />
                             </div>
-                            <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
-                              {formatUsd(group.value)}
-                            </span>
+                          );
+                        }
+                        const net = item.supplied.value - item.borrowed.value;
+                        return (
+                          <div
+                            key={itemKey}
+                            className="overflow-hidden rounded-xl border border-border/50 bg-background/35"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-border/50 border-b px-4 py-3">
+                              <AddressChip address={item.supplied.walletShort} />
+                              <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+                                Net {formatUsd(net)}
+                              </span>
+                            </div>
+                            <div className="divide-y divide-border/40">
+                              <div>
+                                <DefiGroupHeader group={item.supplied} compact />
+                                <DefiGroupRowTable rows={item.supplied.rows} />
+                              </div>
+                              <div>
+                                <DefiGroupHeader group={item.borrowed} compact />
+                                <DefiGroupRowTable rows={item.borrowed.rows} />
+                              </div>
+                            </div>
                           </div>
-                          <Table>
-                            <TableHeader className="[&_tr]:border-border/50">
-                              <TableRow>
-                                <TableHead className="ps-4 text-xs font-medium text-muted-foreground">
-                                  Position
-                                </TableHead>
-                                <TableHead className="text-xs font-medium text-muted-foreground">
-                                  Balance
-                                </TableHead>
-                                <TableHead className="text-right text-xs font-medium text-muted-foreground">
-                                  USD Value
-                                </TableHead>
-                                <TableHead className="pe-4 text-right text-xs font-medium text-muted-foreground">
-                                  Yield
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody className="[&_tr]:border-border/50">
-                              {group.rows.map((row, rowIndex) => (
-                                <TableRow
-                                  key={`${row.asset}-${rowIndex}`}
-                                  className="hover:bg-muted/40"
-                                >
-                                  <TableCell className="ps-4 font-medium text-sm">
-                                    <div className="flex items-center gap-3">
-                                      <TokenLogo
-                                        symbol={assetPrimarySymbol(row.asset)}
-                                        logoUrl={row.logoUrl}
-                                        className="size-8"
-                                      />
-                                      <span>{row.asset}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
-                                    <div>{row.balance}</div>
-                                    {row.altBalance ? (
-                                      <div className="text-[11px] opacity-80">
-                                        {row.altBalance}
-                                      </div>
-                                    ) : null}
-                                  </TableCell>
-                                  <TableCell className="text-right font-mono tabular-nums">
-                                    <div className="text-sm">{formatUsd(row.usd)}</div>
-                                    <div
-                                      className={
-                                        "text-[11px] " +
-                                        deltaColorClasses(row.usdChange24h || row.usdChangePct24h)
-                                      }
-                                    >
-                                      {formatUsdDelta(row.usdChange24h)} (
-                                      {formatPct(row.usdChangePct24h)})
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="pe-4 text-right font-mono text-sm text-muted-foreground tabular-nums">
-                                    {row.yieldLabel ?? "—"}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </AccordionPanel>
                 </AccordionItem>
@@ -1352,18 +1477,27 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed";
 }
 
+function positionLegGroups(position: TrackallSolanaPosition): ReadonlyArray<readonly { amount?: { token: string } }[] | undefined> {
+  switch (position.positionKind) {
+    case "lending":
+      return [position.supplied, position.borrowed, position.rewards];
+    case "staking":
+      return [position.staked, position.unbonding, position.rewards];
+    case "liquidity":
+      return [position.poolTokens, position.fees, position.rewards];
+    case "reward":
+      return [position.claimable, position.claimed, position.rewards];
+    case "vesting":
+      return [position.vesting, position.claimable, position.claimed, position.rewards];
+    case "trading":
+      return [position.deposited, position.rewards];
+  }
+}
+
 function positionTokenMints(positions: TrackallSolanaPosition[]) {
   const mints = new Set<string>();
   for (const position of positions) {
-    const legGroups = [
-      position.supplied,
-      position.borrowed,
-      position.staked,
-      position.rewards,
-      position.poolTokens,
-      position.fees,
-    ];
-    for (const legs of legGroups) {
+    for (const legs of positionLegGroups(position)) {
       for (const leg of legs ?? []) {
         const mint = leg.amount?.token?.trim();
         if (mint) mints.add(mint);
@@ -1377,7 +1511,7 @@ function missingPositionTokenMints(
   positions: TrackallSolanaPosition[],
   knownTokens: TrackallSolanaToken[],
 ) {
-  const knownMints = new Set(knownTokens.map((token) => token.mint));
+  const knownMints = new Set(knownTokens.map((token) => token.mintAddress));
   return positionTokenMints(positions).filter((mint) => !knownMints.has(mint));
 }
 
@@ -1388,13 +1522,13 @@ function firstString(...values: Array<string | undefined>) {
 function mergeTokensWithMetadata(tokens: TrackallSolanaToken[], metadata: TrackallSolanaToken[]) {
   const byMint = new Map<string, TrackallSolanaToken>();
   for (const token of metadata) {
-    byMint.set(token.mint, token);
+    byMint.set(token.mintAddress, token);
   }
 
   for (const token of tokens) {
-    const metadataToken = byMint.get(token.mint);
+    const metadataToken = byMint.get(token.mintAddress);
     byMint.set(
-      token.mint,
+      token.mintAddress,
       metadataToken
         ? {
             ...metadataToken,
