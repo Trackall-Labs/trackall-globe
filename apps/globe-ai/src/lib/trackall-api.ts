@@ -70,6 +70,30 @@ export type TrackallSolanaToken = Pick<TokenData, "mintAddress"> &
     usdValue?: number | string;
   };
 
+export type TrackallSolanaPortfolioPlotBucket = "1h" | "4h" | "1d";
+
+export type TrackallSolanaPortfolioPlotRange = {
+  from: string | null;
+  to: string | null;
+  timezone: string | null;
+};
+
+export type TrackallSolanaPortfolioPlotPoint = {
+  hour: string | null;
+  capturedAt: string | null;
+  timestamp: string;
+  totalUsd: number;
+  positionCount: number;
+  positions: unknown[];
+};
+
+export type TrackallSolanaPortfolioPlot = {
+  address: string | null;
+  bucket: string | null;
+  range: TrackallSolanaPortfolioPlotRange;
+  points: TrackallSolanaPortfolioPlotPoint[];
+};
+
 const DEFAULT_TRACKALL_API_URL = "https://trackall.nightly.app/";
 const SOLANA_HUB = NETWORKS.find((network) => network.id === "solana") ?? NETWORKS[0]!;
 const API_REFRESH_MS = 60_000;
@@ -99,6 +123,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readFiniteDecimalNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function readString(value: unknown) {
@@ -501,6 +532,54 @@ function parseSolanaToken(value: unknown, fallbackMint?: string): TrackallSolana
   };
 }
 
+function parsePortfolioPlotRange(value: unknown): TrackallSolanaPortfolioPlotRange {
+  if (!isRecord(value)) {
+    return { from: null, to: null, timezone: null };
+  }
+
+  return {
+    from: readString(value.from),
+    to: readString(value.to),
+    timezone: readString(value.timezone),
+  };
+}
+
+function parsePortfolioPlotPoint(value: unknown): TrackallSolanaPortfolioPlotPoint | null {
+  if (!isRecord(value)) return null;
+  const hour = readString(value.hour);
+  const capturedAt = readString(value.capturedAt);
+  const timestamp = hour ?? capturedAt;
+  const totalUsd = readFiniteDecimalNumber(value.totalUsd);
+  if (!timestamp || totalUsd === null || !Number.isFinite(Date.parse(timestamp))) return null;
+
+  const positions = Array.isArray(value.positions) ? value.positions : [];
+
+  return {
+    hour,
+    capturedAt,
+    timestamp: new Date(timestamp).toISOString(),
+    totalUsd,
+    positionCount: readNumber(value.positionCount) ?? positions.length,
+    positions,
+  };
+}
+
+function parsePortfolioPlot(value: unknown): TrackallSolanaPortfolioPlot | null {
+  if (!isRecord(value) || !Array.isArray(value.points)) return null;
+
+  const points = value.points
+    .map(parsePortfolioPlotPoint)
+    .filter((point): point is TrackallSolanaPortfolioPlotPoint => point !== null)
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+
+  return {
+    address: readString(value.address),
+    bucket: readString(value.bucket),
+    range: parsePortfolioPlotRange(value.range),
+    points,
+  };
+}
+
 function requireApiKey(config: TrackallApiConfig) {
   const apiKey = config.apiKey?.trim();
   if (!apiKey) {
@@ -693,6 +772,26 @@ export async function fetchSolanaTokens(
   }
 
   return data.map((item) => parseSolanaToken(item)).filter((token): token is TrackallSolanaToken => token !== null);
+}
+
+export async function fetchSolanaPortfolioPlot(
+  address: string,
+  bucket: TrackallSolanaPortfolioPlotBucket,
+  config: TrackallApiConfig = {},
+  signal?: AbortSignal,
+): Promise<TrackallSolanaPortfolioPlot> {
+  const params = new URLSearchParams({ bucket });
+  const data = await fetchTrackallJson(
+    `api/solana/portfolio/${encodeURIComponent(address)}/plot?${params.toString()}`,
+    config,
+    signal,
+  );
+  const plot = parsePortfolioPlot(data);
+  if (!plot) {
+    throw new Error("Trackall API returned an invalid portfolio plot payload");
+  }
+
+  return plot;
 }
 
 const TOKEN_METADATA_BATCH_SIZE = 20;

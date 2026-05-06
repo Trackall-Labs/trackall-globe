@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ArrowDownRightIcon,
   ArrowUpRightIcon,
@@ -12,6 +12,7 @@ import {
   WalletIcon,
   WavesIcon,
 } from "lucide-react";
+import { Area, AreaChart, XAxis, YAxis } from "recharts";
 import {
   Accordion,
   AccordionItem,
@@ -23,6 +24,7 @@ import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
 import { ParticleField } from "@orbit/ui/particle-field";
+import { Chart } from "@orbit/ui/patterns/charts";
 import {
   Empty,
   EmptyContent,
@@ -62,10 +64,14 @@ import {
   shortenAddress,
 } from "@/lib/portfolio-mock";
 import {
+  fetchSolanaPortfolioPlot,
   fetchSolanaPositionCache,
   fetchSolanaPositions,
   fetchSolanaTokenMetadata,
   fetchSolanaTokens,
+  type TrackallSolanaPortfolioPlot,
+  type TrackallSolanaPortfolioPlotBucket,
+  type TrackallSolanaPortfolioPlotPoint,
   type TrackallSolanaPosition,
   type TrackallSolanaToken,
 } from "@/lib/trackall-api";
@@ -117,6 +123,12 @@ const PROTOCOL_LOGOS: Record<string, string> = {
   meteora: "https://www.google.com/s2/favicons?domain=meteora.ag&sz=128",
   metapool: "https://www.google.com/s2/favicons?domain=metapool.app&sz=128",
 };
+
+const WALLET_PLOT_BUCKETS: { label: string; value: TrackallSolanaPortfolioPlotBucket }[] = [
+  { label: "1H", value: "1h" },
+  { label: "4H", value: "4h" },
+  { label: "1D", value: "1d" },
+];
 
 function assetPrimarySymbol(value: string) {
   return value.split("—")[0]?.trim().split(/\s+/).pop() ?? value;
@@ -220,78 +232,6 @@ function ProtocolLogo({
       src={logoUrl ?? PROTOCOL_LOGOS[protocolId]}
       className={className}
     />
-  );
-}
-
-const WALLET_VALUE_SERIES = [
-  696, 692, 694, 688, 690, 684, 686, 681, 683, 679, 681, 678.96,
-];
-
-function WalletSparkline({
-  className = "h-[104px]",
-  height = 104,
-  negative,
-  values,
-}: {
-  className?: string;
-  height?: number;
-  negative: boolean;
-  values: number[];
-}) {
-  const width = 320;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const points = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1)) * width;
-      const y = height - ((value - min) / range) * (height - 12) - 6;
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(" ");
-  const areaPoints = `0,${height} ${points} ${width},${height}`;
-
-  return (
-    <svg
-      aria-hidden
-      className={
-        className +
-        " w-full overflow-visible " +
-        (negative
-          ? "text-rose-500/80 dark:text-rose-400/80"
-          : "text-emerald-500/80 dark:text-emerald-400/80")
-      }
-      preserveAspectRatio="none"
-      viewBox={`0 0 ${width} ${height}`}
-    >
-      <defs>
-        <linearGradient id="wallet-sparkline-fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.18" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0.25, 0.5, 0.75].map((ratio) => (
-        <line
-          key={ratio}
-          x1="0"
-          x2={width}
-          y1={height * ratio}
-          y2={height * ratio}
-          stroke="rgb(255 255 255 / 0.07)"
-          strokeDasharray="2 8"
-          strokeWidth="1"
-        />
-      ))}
-      <polygon fill="url(#wallet-sparkline-fill)" points={areaPoints} />
-      <polyline
-        fill="none"
-        points={points}
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.5"
-      />
-    </svg>
   );
 }
 
@@ -728,15 +668,242 @@ function PortfolioLoadingState({
   );
 }
 
+type WalletPlotState = {
+  address: string;
+  bucket: TrackallSolanaPortfolioPlotBucket;
+  loading: boolean;
+  error: string | null;
+  plot: TrackallSolanaPortfolioPlot | null;
+};
+
+function formatPlotLabel(timestamp: string, bucket: TrackallSolanaPortfolioPlotBucket) {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return timestamp;
+  if (bucket === "1d") {
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  }
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function walletPlotDelta(points: TrackallSolanaPortfolioPlotPoint[]) {
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (!first || !last) return null;
+  const delta = last.totalUsd - first.totalUsd;
+  return {
+    delta,
+    pct: first.totalUsd > 0 ? (delta / first.totalUsd) * 100 : 0,
+  };
+}
+
+function walletPlotSkeletonData(fallbackValue: number) {
+  const base = Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : 100;
+  return [
+    { label: "Start", positions: 0, value: base * 0.58 },
+    { label: "", positions: 0, value: base * 0.74 },
+    { label: "Loading plot", positions: 0, value: base * 0.64 },
+    { label: "", positions: 0, value: base * 0.82 },
+    { label: "Now", positions: 0, value: base * 0.7 },
+  ];
+}
+
+function WalletValueChart({
+  bucket,
+  error,
+  fallbackValue,
+  fallbackWhenEmpty,
+  loading,
+  negative,
+  points,
+}: {
+  bucket: TrackallSolanaPortfolioPlotBucket;
+  error: string | null;
+  fallbackValue: number;
+  fallbackWhenEmpty: boolean;
+  loading: boolean;
+  negative: boolean;
+  points: TrackallSolanaPortfolioPlotPoint[];
+}) {
+  const reactId = useId();
+  const gradientId = `wallet-plot-${reactId.replace(/:/g, "")}`;
+  const strokeColor = negative ? "var(--color-rose-500)" : "var(--chart-2)";
+  const useFallbackPoint =
+    fallbackWhenEmpty && points.length === 0 && Number.isFinite(fallbackValue);
+  const chartData = useMemo(
+    () => {
+      if (useFallbackPoint) {
+        return [
+          {
+            label: "Current",
+            positions: 0,
+            value: fallbackValue,
+          },
+        ];
+      }
+
+      return points.map((point) => ({
+        label: formatPlotLabel(point.timestamp, bucket),
+        positions: point.positionCount,
+        value: point.totalUsd,
+      }));
+    },
+    [bucket, fallbackValue, points, useFallbackPoint],
+  );
+  const skeletonData = useMemo(() => walletPlotSkeletonData(fallbackValue), [fallbackValue]);
+  const showingSkeleton = loading && chartData.length === 0;
+  const displayData = showingSkeleton ? skeletonData : chartData;
+  const tickInterval =
+    bucket === "1d" && displayData.length > 18
+      ? Math.ceil(displayData.length / 4)
+      : 0;
+  const xAxisTicks = useMemo(() => {
+    if (showingSkeleton) return ["Start", "Loading plot", "Now"];
+    if (bucket === "1d" || chartData.length <= 3) return undefined;
+    const middleIndex = Math.floor((chartData.length - 1) / 2);
+    return [
+      chartData[0]?.label,
+      chartData[middleIndex]?.label,
+      chartData[chartData.length - 1]?.label,
+    ].filter((label): label is string => Boolean(label));
+  }, [bucket, chartData, showingSkeleton]);
+  const visibleXTickCount = xAxisTicks?.length ?? Math.min(displayData.length, 5);
+  const renderXAxisTick = useCallback(
+    ({
+      x = 0,
+      y = 0,
+      payload,
+      index = 0,
+    }: {
+      x?: number | string;
+      y?: number | string;
+      payload?: { value?: string | number };
+      index?: number;
+    }) => {
+      const tickX = Number(x);
+      const tickY = Number(y);
+      const edgeOffset =
+        displayData.length <= 1 || showingSkeleton
+          ? 0
+          : index === 0
+            ? 42
+            : index === visibleXTickCount - 1
+              ? -42
+              : 0;
+      return (
+        <text
+          x={(Number.isFinite(tickX) ? tickX : 0) + edgeOffset}
+          y={Number.isFinite(tickY) ? tickY : 0}
+          dy={8}
+          fill="currentColor"
+          fontSize={10}
+          letterSpacing={0}
+          textAnchor="middle"
+        >
+          {String(payload?.value ?? "")}
+        </text>
+      );
+    },
+    [displayData.length, showingSkeleton, visibleXTickCount],
+  );
+
+  if (chartData.length === 0 && !showingSkeleton) {
+    return (
+      <div className="grid h-[188px] place-items-center rounded-xl border border-border/50 bg-background/35 px-4 text-center">
+        <div>
+          <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
+            {error ? "Plot unavailable" : "No plot data"}
+          </div>
+          <div className="mt-2 max-w-sm text-sm text-muted-foreground">
+            {error ?? "Portfolio value history will appear here once the API returns points."}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Chart.ChartContainer className="h-[188px] [&_.recharts-cartesian-axis-tick_text]:!tracking-normal">
+      <AreaChart data={displayData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop
+              offset="0%"
+              stopColor={showingSkeleton ? "var(--muted-foreground)" : strokeColor}
+              stopOpacity={showingSkeleton ? "0.16" : "0.5"}
+            />
+            <stop
+              offset="100%"
+              stopColor={showingSkeleton ? "var(--muted-foreground)" : strokeColor}
+              stopOpacity={showingSkeleton ? "0.04" : "0.04"}
+            />
+          </linearGradient>
+        </defs>
+        <Chart.ChartGrid />
+        <XAxis
+          dataKey="label"
+          interval={tickInterval}
+          ticks={xAxisTicks}
+          tick={renderXAxisTick}
+          tickLine={false}
+          axisLine={false}
+          tickMargin={10}
+          minTickGap={8}
+          stroke="currentColor"
+        />
+        <YAxis
+          width={62}
+          tickFormatter={(value) => formatUsdCompact(Number(value))}
+          tick={{ fontSize: 10, letterSpacing: 0 }}
+          tickLine={false}
+          axisLine={false}
+          tickMargin={10}
+          minTickGap={8}
+          stroke="currentColor"
+        />
+        {showingSkeleton ? null : <Chart.ChartTooltip />}
+        <Area
+          type="monotone"
+          dataKey="value"
+          name="Total USD"
+          stroke={showingSkeleton ? "var(--muted-foreground)" : strokeColor}
+          strokeOpacity={showingSkeleton ? 0.42 : 1}
+          strokeWidth={2}
+          dot={displayData.length === 1 ? { r: 3, strokeWidth: 2 } : false}
+          activeDot={showingSkeleton ? false : { r: 4, strokeWidth: 2 }}
+          fill={`url(#${gradientId})`}
+          isAnimationActive={!showingSkeleton}
+          animationBegin={80}
+          animationDuration={700}
+          animationEasing="ease-out"
+        />
+      </AreaChart>
+    </Chart.ChartContainer>
+  );
+}
+
 function NetWorthAndAllocation({
   networkName,
+  onPlotBucketChange,
   portfolio,
+  plotBucket,
+  plotState,
 }: {
   networkName: string;
+  onPlotBucketChange: (bucket: TrackallSolanaPortfolioPlotBucket) => void;
   portfolio: PortfolioMock;
+  plotBucket: TrackallSolanaPortfolioPlotBucket;
+  plotState: WalletPlotState | null;
 }) {
   const [allocationKind, setAllocationKind] = useState<AllocationKind>("tokens");
-  const [range, setRange] = useState("1D");
   const spotValue = portfolio.tokens.reduce(
     (acc, token) => acc + token.usdValue,
     0,
@@ -767,7 +934,14 @@ function NetWorthAndAllocation({
           color: a.color,
         }));
 
-  const negative = portfolio.netWorthChange24h < 0;
+  const plotPoints = plotState?.plot?.points ?? [];
+  const latestPlotPoint = plotPoints[plotPoints.length - 1];
+  const plotChange = walletPlotDelta(plotPoints);
+  const displayedNetWorth = latestPlotPoint?.totalUsd ?? portfolio.netWorth;
+  const displayedChangeDelta = plotChange?.delta ?? portfolio.netWorthChange24h;
+  const displayedChangePct = plotChange?.pct ?? portfolio.netWorthChangePct24h;
+  const negative = displayedChangeDelta < 0;
+  const changeLabel = plotChange ? "plot" : "today";
 
   return (
     <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border/60 bg-border/60 shadow-[0_28px_70px_-54px_rgb(0_0_0/0.9)] backdrop-blur-xl lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -782,7 +956,7 @@ function NetWorthAndAllocation({
             </div>
             <div className="mt-2 flex flex-wrap items-baseline gap-3">
               <span className="font-mono text-5xl tracking-tight tabular-nums">
-                ${portfolio.netWorth.toFixed(2)}
+                ${displayedNetWorth.toFixed(2)}
               </span>
               <span
                 className={
@@ -797,23 +971,23 @@ function NetWorthAndAllocation({
                 ) : (
                   <ArrowUpRightIcon className="size-4 shrink-0" />
                 )}
-                {formatPct(portfolio.netWorthChangePct24h)}
+                {formatPct(displayedChangePct)}
               </span>
             </div>
             <div className="mt-1 font-mono text-muted-foreground text-xs tabular-nums">
-              {formatUsdDelta(portfolio.netWorthChange24h)} today · spot{" "}
+              {formatUsdDelta(displayedChangeDelta)} {changeLabel} · spot{" "}
               {formatUsdCompact(spotValue)} · DeFi {formatUsdCompact(defiValue)}
             </div>
           </div>
           <Tabs
-            value={range}
-            onValueChange={setRange}
+            value={plotBucket}
+            onValueChange={(next) => onPlotBucketChange(next as TrackallSolanaPortfolioPlotBucket)}
             className="shrink-0"
           >
             <TabsList aria-label="Chart range">
-              {["1D", "1W", "1M", "1Y", "ALL"].map((entry) => (
-                <TabsTab key={entry} value={entry}>
-                  {entry}
+              {WALLET_PLOT_BUCKETS.map((entry) => (
+                <TabsTab key={entry.value} value={entry.value}>
+                  {entry.label}
                 </TabsTab>
               ))}
             </TabsList>
@@ -821,11 +995,16 @@ function NetWorthAndAllocation({
         </div>
 
         <div className="relative z-0 mt-7">
-          <WalletSparkline
+          <WalletValueChart
+            bucket={plotBucket}
+            error={plotState?.error ?? null}
+            fallbackValue={portfolio.netWorth}
+            fallbackWhenEmpty={Boolean(
+              plotState?.plot && !plotState.loading && !plotState.error && plotPoints.length === 0,
+            )}
+            loading={plotState?.loading ?? false}
             negative={negative}
-            values={WALLET_VALUE_SERIES}
-            height={188}
-            className="h-[188px]"
+            points={plotPoints}
           />
         </div>
       </div>
@@ -900,12 +1079,12 @@ function NetWorthAndAllocation({
               Net worth
             </div>
             <div className="mt-1 font-mono text-sm tabular-nums">
-              ${portfolio.netWorth.toFixed(2)}
+              ${displayedNetWorth.toFixed(2)}
             </div>
           </div>
           <div className="bg-background/72 p-3">
             <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
-              24H change
+              {plotChange ? "Plot delta" : "24H change"}
             </div>
             <div
               className={
@@ -915,7 +1094,7 @@ function NetWorthAndAllocation({
                   : "text-emerald-600 dark:text-emerald-400")
               }
             >
-              {formatPct(portfolio.netWorthChangePct24h)}
+              {formatPct(displayedChangePct)}
             </div>
           </div>
         </div>
@@ -1463,6 +1642,11 @@ type RemotePortfolioState = {
 };
 
 const REMOTE_PORTFOLIO_STATE_BY_ADDRESS = new Map<string, RemotePortfolioState>();
+const REMOTE_PORTFOLIO_PLOT_STATE_BY_KEY = new Map<string, WalletPlotState>();
+
+function walletPlotCacheKey(address: string, bucket: TrackallSolanaPortfolioPlotBucket) {
+  return `${address}:${bucket}`;
+}
 
 function publishedPositions(state: RemotePortfolioState | null) {
   if (!state || !portfolioDataReady(state)) return [];
@@ -1561,10 +1745,14 @@ export function PortfolioPage({
   onOpenWallet: (address: string) => void;
 }) {
   const [pendingWalletAddress, setPendingWalletAddress] = useState<string | null>(null);
+  const [plotBucket, setPlotBucket] = useState<TrackallSolanaPortfolioPlotBucket>("1h");
   const loadWalletAddress = pendingWalletAddress ?? walletAddress;
   const shouldLoadSolanaWallet = Boolean(loadWalletAddress && (!activeNetworkFilter || activeNetworkFilter.id === "solana"));
   const [remotePortfolio, setRemotePortfolioState] = useState<RemotePortfolioState | null>(() => {
     return walletAddress ? (REMOTE_PORTFOLIO_STATE_BY_ADDRESS.get(walletAddress) ?? null) : null;
+  });
+  const [walletPlotState, setWalletPlotState] = useState<WalletPlotState | null>(() => {
+    return walletAddress ? (REMOTE_PORTFOLIO_PLOT_STATE_BY_KEY.get(walletPlotCacheKey(walletAddress, "1h")) ?? null) : null;
   });
   const setRemotePortfolio = useCallback(
     (
@@ -1577,6 +1765,26 @@ export function PortfolioPage({
         const resolved = typeof next === "function" ? next(current) : next;
         if (resolved) {
           REMOTE_PORTFOLIO_STATE_BY_ADDRESS.set(resolved.address, resolved);
+        }
+        return resolved;
+      });
+    },
+    [],
+  );
+  const setWalletPlot = useCallback(
+    (
+      next:
+        | WalletPlotState
+        | null
+        | ((current: WalletPlotState | null) => WalletPlotState | null),
+    ) => {
+      setWalletPlotState((current) => {
+        const resolved = typeof next === "function" ? next(current) : next;
+        if (resolved) {
+          REMOTE_PORTFOLIO_PLOT_STATE_BY_KEY.set(
+            walletPlotCacheKey(resolved.address, resolved.bucket),
+            resolved,
+          );
         }
         return resolved;
       });
@@ -1603,6 +1811,10 @@ export function PortfolioPage({
   const portfolioStatus = remotePortfolio?.address === walletAddress ? remotePortfolio : null;
   const pendingPortfolioStatus = remotePortfolio?.address === pendingWalletAddress ? remotePortfolio : null;
   const activeAddressStatus = remotePortfolio?.address === loadWalletAddress ? remotePortfolio : null;
+  const activePlotStatus =
+    walletPlotState?.address === walletAddress && walletPlotState.bucket === plotBucket
+      ? walletPlotState
+      : null;
   const shouldShowLoading =
     Boolean(loadWalletAddress) &&
     shouldLoadSolanaWallet &&
@@ -1818,6 +2030,65 @@ export function PortfolioPage({
   }, [loadWalletAddress, shouldLoadSolanaWallet]);
 
   useEffect(() => {
+    if (!loadWalletAddress || !shouldLoadSolanaWallet) {
+      setWalletPlot(null);
+      return;
+    }
+
+    const cacheKey = walletPlotCacheKey(loadWalletAddress, plotBucket);
+    const cachedState = REMOTE_PORTFOLIO_PLOT_STATE_BY_KEY.get(cacheKey);
+    if (cachedState?.plot && !cachedState.error) {
+      setWalletPlot(cachedState);
+      return;
+    }
+
+    const controller = new AbortController();
+    const config = {
+      apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
+      baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
+    };
+    const initialState: WalletPlotState = {
+      address: loadWalletAddress,
+      bucket: plotBucket,
+      error: null,
+      loading: true,
+      plot: cachedState?.plot ?? null,
+    };
+
+    setWalletPlot(initialState);
+
+    fetchSolanaPortfolioPlot(loadWalletAddress, plotBucket, config, controller.signal)
+      .then((plot) => {
+        setWalletPlot((current) =>
+          current?.address === loadWalletAddress && current.bucket === plotBucket
+            ? {
+                ...current,
+                error: null,
+                loading: false,
+                plot,
+              }
+            : current,
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setWalletPlot((current) =>
+          current?.address === loadWalletAddress && current.bucket === plotBucket
+            ? {
+                ...current,
+                error: errorMessage(error),
+                loading: false,
+              }
+            : current,
+        );
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [loadWalletAddress, plotBucket, setWalletPlot, shouldLoadSolanaWallet]);
+
+  useEffect(() => {
     if (
       !pendingWalletAddress ||
       pendingWalletAddress === walletAddress ||
@@ -1894,7 +2165,13 @@ export function PortfolioPage({
           </div>
 
           <div className="mt-6">
-            <NetWorthAndAllocation networkName={networkName} portfolio={portfolio} />
+            <NetWorthAndAllocation
+              networkName={networkName}
+              onPlotBucketChange={setPlotBucket}
+              portfolio={portfolio}
+              plotBucket={plotBucket}
+              plotState={activePlotStatus}
+            />
           </div>
 
           <ProtocolStripRow networkSymbol={networkSymbol} portfolio={portfolio} />
