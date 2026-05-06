@@ -164,8 +164,14 @@ function buildChart(
   });
 }
 
-function buildTopProtocols(network: Network, seed: string, networkTvl: number, volume24h: number) {
-  const matches = PROTOCOLS.filter((protocol) =>
+function buildTopProtocols(
+  network: Network,
+  seed: string,
+  networkTvl: number,
+  volume24h: number,
+  protocols: Protocol[],
+) {
+  const matches = protocols.filter((protocol) =>
     protocol.networks.some((name) => name.toLowerCase() === network.name.toLowerCase()),
   );
 
@@ -242,7 +248,10 @@ function buildRecentBlocks(seed: string, baseFinalityMs: number): NetworkBlockRo
   });
 }
 
-export function buildNetworkDetailMock(network: Network): NetworkDetailMock {
+export function buildNetworkDetailMock(
+  network: Network,
+  protocols: Protocol[] = PROTOCOLS,
+): NetworkDetailMock {
   const seed = network.id;
   const tvl = range(`${seed}:tvl`, 380_000_000, 28_400_000_000);
   const volume24h = tvl * range(`${seed}:volume24h`, 0.04, 0.42);
@@ -313,7 +322,7 @@ export function buildNetworkDetailMock(network: Network): NetworkDetailMock {
       },
     ],
     chart: buildChart(seed, tvl, volume24h, users, tps),
-    topProtocols: buildTopProtocols(network, seed, tvl, volume24h),
+    topProtocols: buildTopProtocols(network, seed, tvl, volume24h, protocols),
     wallets: buildWallets(network, seed, tvl, volume24h),
     recentBlocks: buildRecentBlocks(seed, blockTimeMs),
   };

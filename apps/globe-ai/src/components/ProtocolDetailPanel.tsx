@@ -1,4 +1,12 @@
-import { ArrowDownRightIcon, ArrowUpRightIcon, ExternalLinkIcon, MapPinIcon, XIcon } from "lucide-react";
+import {
+  ArrowDownRightIcon,
+  ArrowUpRightIcon,
+  DatabaseIcon,
+  ExternalLinkIcon,
+  MapPinIcon,
+  UsersIcon,
+  XIcon,
+} from "lucide-react";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { findNetworkByName } from "@/lib/networks";
@@ -139,6 +147,22 @@ export function ProtocolDetailPanel({
         <span>{formatProtocolLocation(protocol)}</span>
       </div>
 
+      {(protocol.activeUsers != null && protocol.activeUsers > 0) || protocol.programIds ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
+            <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
+              <UsersIcon className="size-3" />
+              {protocol.activeUsers.toLocaleString("en-US")} active users
+            </Badge>
+          ) : null}
+          <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
+            <DatabaseIcon className="size-3" />
+            {(protocol.programIds?.length ?? 0).toLocaleString("en-US")} programs
+          </Badge>
+        </div>
+      ) : null}
+
+      {/* Metrics hidden for now.
       <div className="mt-3 grid grid-cols-3 divide-x divide-border/60 border-y border-border/60">
         <div className="px-3 py-2.5">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">TVL</div>
@@ -156,13 +180,14 @@ export function ProtocolDetailPanel({
         </div>
         <div className="px-3 py-2.5">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
-            All users
+            Active users
           </div>
           <div className="mt-0.5 truncate text-sm tabular-nums">
             {users ? Math.round(users.value).toLocaleString("en-US") : "--"}
           </div>
         </div>
       </div>
+      */}
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <span

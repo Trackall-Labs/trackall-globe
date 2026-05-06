@@ -20,6 +20,9 @@ export type Protocol = {
   description: string;
   website?: string;
   logo?: string;
+  activeUsers?: number;
+  programIds?: string[];
+  source?: "local" | "trackall-api";
 };
 
 export type WalletPin = {

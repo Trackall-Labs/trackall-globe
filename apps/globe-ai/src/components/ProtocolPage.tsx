@@ -584,6 +584,20 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
                 {protocol.description}
               </p>
+              {(protocol.activeUsers != null && protocol.activeUsers > 0) || protocol.programIds ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
+                    <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
+                      <UsersIcon className="size-3" />
+                      {protocol.activeUsers.toLocaleString("en-US")} active users
+                    </Badge>
+                  ) : null}
+                  <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
+                    <DatabaseIcon className="size-3" />
+                    {(protocol.programIds?.length ?? 0).toLocaleString("en-US")} indexed programs
+                  </Badge>
+                </div>
+              ) : null}
             </div>
           </div>
 

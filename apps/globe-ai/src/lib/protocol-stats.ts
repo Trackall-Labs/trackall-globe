@@ -142,7 +142,7 @@ export function buildProtocolDetailMock(protocol: Protocol): ProtocolDetailMock 
   const seed = protocol.id || protocol.name;
   const tvl = range(`${seed}:tvl`, 180_000_000, 7_800_000_000);
   const volume24h = tvl * range(`${seed}:volume24h`, 0.035, 0.36);
-  const users = Math.round(range(`${seed}:users`, 18_000, 860_000));
+  const users = protocol.activeUsers ?? Math.round(range(`${seed}:users`, 18_000, 860_000));
   const deposits = tvl * range(`${seed}:deposits`, 0.84, 1.28);
   const fees = volume24h * range(`${seed}:fees`, 0.0008, 0.0032);
   const revenue = fees * range(`${seed}:revenue`, 0.32, 0.72);

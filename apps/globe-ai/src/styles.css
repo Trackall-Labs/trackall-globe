@@ -1017,6 +1017,25 @@ input {
   white-space: nowrap;
 }
 
+.protocol-marker-copy {
+  display: inline-flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1.05;
+}
+
+.protocol-marker-meta {
+  margin-top: 1px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
 .protocol-marker-fan {
   z-index: 16;
   min-width: 0;
@@ -1417,6 +1436,7 @@ input {
   .country-chip {
     top: calc(max(14px, env(safe-area-inset-top)) + 56px);
   }
+
 }
 
 @media (max-width: 640px) {

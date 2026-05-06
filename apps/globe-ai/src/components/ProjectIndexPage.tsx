@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, GlobeIcon, LayersIcon } from "lucide-react";
+import { ArrowUpRightIcon, DatabaseIcon, GlobeIcon, LayersIcon, UsersIcon } from "lucide-react";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
@@ -113,6 +113,25 @@ export function ProjectIndexPage({
                   <GlobeIcon className="size-3" />
                   {protocol.country}
                 </div>
+
+                {(protocol.activeUsers != null && protocol.activeUsers > 0) || protocol.programIds ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border/60 pt-3">
+                    {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
+                      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <UsersIcon className="size-3.5 shrink-0" />
+                        <span className="truncate tabular-nums">
+                          {protocol.activeUsers.toLocaleString("en-US")} active
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <DatabaseIcon className="size-3.5 shrink-0" />
+                      <span className="truncate tabular-nums">
+                        {(protocol.programIds?.length ?? 0).toLocaleString("en-US")} programs
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 border-t border-border/60 pt-3">
                   <Button

@@ -72,6 +72,7 @@ import type { Protocol } from "@/lib/types";
 
 type Props = {
   network: Network | null;
+  protocols: Protocol[];
   requestedId: string | null;
   onBack: () => void;
   onOpenProtocol: (protocol: Protocol) => void;
@@ -725,7 +726,14 @@ function SortableHead({
   );
 }
 
-export function NetworkPage({ network, requestedId, onBack, onOpenProtocol, onOpenWallet }: Props) {
+export function NetworkPage({
+  network,
+  protocols,
+  requestedId,
+  onBack,
+  onOpenProtocol,
+  onOpenWallet,
+}: Props) {
   const [chartMetric, setChartMetric] = useState<ChartMetric>("tvl");
   const [chartRange, setChartRange] = useState<ChartRange>("30d");
   const [search, setSearch] = useState("");
@@ -738,7 +746,7 @@ export function NetworkPage({ network, requestedId, onBack, onOpenProtocol, onOp
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(12);
   const [selectedWallets, setSelectedWallets] = useState<Set<string>>(() => new Set());
 
-  const detail = useMemo(() => (network ? buildNetworkDetailMock(network) : null), [network]);
+  const detail = useMemo(() => (network ? buildNetworkDetailMock(network, protocols) : null), [network, protocols]);
   const chartPoints = useMemo(() => {
     if (!detail) return [];
     const size = CHART_RANGES.find((entry) => entry.key === chartRange)?.size ?? 30;

@@ -395,6 +395,12 @@ function findCountryFeature(features: CountryFeature[], country: string) {
   return features.find((feature) => getCountryName(feature) === country) ?? null;
 }
 
+function formatActiveUsers(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toLocaleString("en-US");
+}
+
 export function GlobeScene({
   active = true,
   protocols,
@@ -1082,7 +1088,12 @@ export function GlobeScene({
                   <span className="protocol-marker-logo">
                     {protocol.logo ? <img src={protocol.logo} alt="" /> : protocol.symbol.slice(0, 3)}
                   </span>
-                  <span className="protocol-marker-label">{protocol.name}</span>
+                  <span className="protocol-marker-copy">
+                    <span className="protocol-marker-label">{protocol.name}</span>
+                    {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
+                      <span className="protocol-marker-meta">{formatActiveUsers(protocol.activeUsers)} users</span>
+                    ) : null}
+                  </span>
                 </button>
               );
             }
@@ -1149,7 +1160,12 @@ export function GlobeScene({
                       <span className="protocol-marker-logo">
                         {protocol.logo ? <img src={protocol.logo} alt="" /> : protocol.symbol.slice(0, 3)}
                       </span>
-                      <span className="protocol-marker-label">{protocol.name}</span>
+                      <span className="protocol-marker-copy">
+                        <span className="protocol-marker-label">{protocol.name}</span>
+                        {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
+                          <span className="protocol-marker-meta">{formatActiveUsers(protocol.activeUsers)} users</span>
+                        ) : null}
+                      </span>
                     </button>
                   );
                 })}

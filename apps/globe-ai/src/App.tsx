@@ -39,15 +39,19 @@ import {
   pathWithNetworkFilter,
   routePathname,
 } from "./lib/network-filter";
-import { PROTOCOLS } from "./lib/protocols";
 import {
-  getProtocolFromPath,
   getProtocolIdFromPath,
   getPortfolioAddressFromPath,
   isPortfolioPath,
   isProjectIndexPath,
   isProtocolPath,
 } from "./lib/protocol-route";
+import {
+  fetchSolanaPlatforms,
+  mapTrackallPlatformToProtocol,
+  sortTrackallProtocols,
+  trackallRefreshMs,
+} from "./lib/trackall-api";
 import type { Protocol, WalletPin } from "./lib/types";
 import { useBlockStream } from "./lib/use-block-stream";
 
@@ -536,12 +540,17 @@ export function App() {
   const [mobilePanel, setMobilePanel] = useState<"blocks" | "markets" | null>(null);
   const [selectedProtocol, setSelectedProtocol] = useState<Protocol | null>(null);
   const [protocolPreviewAnchor, setProtocolPreviewAnchor] = useState<PreviewAnchor | null>(null);
+  const [trackallProtocols, setTrackallProtocols] = useState<Protocol[]>([]);
   const protocolPreviewCloseRef = useRef<number | null>(null);
   const protocolPreviewHoverRef = useRef(false);
   const currentPathname = useMemo(() => routePathname(routePath), [routePath]);
   const activeNetworkFilter = useMemo(() => getNetworkFilterFromRoute(routePath), [routePath]);
-  const activeProtocol = useMemo(() => getProtocolFromPath(currentPathname), [currentPathname]);
   const activeProtocolId = useMemo(() => getProtocolIdFromPath(currentPathname), [currentPathname]);
+  const allProtocols = trackallProtocols;
+  const activeProtocol = useMemo(() => {
+    if (!activeProtocolId) return null;
+    return allProtocols.find((protocol) => protocol.id === activeProtocolId) ?? null;
+  }, [activeProtocolId, allProtocols]);
   const protocolRouteActive = isProtocolPath(currentPathname);
   const activeNetwork = useMemo(() => getNetworkFromPath(currentPathname), [currentPathname]);
   const activeNetworkId = useMemo(() => getNetworkIdFromPath(currentPathname), [currentPathname]);
@@ -554,16 +563,50 @@ export function App() {
   const pricingRouteActive = currentPathname === "/pricing";
   const homeRouteActive = currentPathname === "/";
   const filteredProtocols = useMemo(() => {
-    if (!activeNetworkFilter) return PROTOCOLS;
-    return PROTOCOLS.filter((protocol) =>
+    if (!activeNetworkFilter) return allProtocols;
+    return allProtocols.filter((protocol) =>
       protocol.networks.some((network) => network.toLowerCase() === activeNetworkFilter.name.toLowerCase()),
     );
-  }, [activeNetworkFilter]);
+  }, [activeNetworkFilter, allProtocols]);
 
   useEffect(() => {
     const updateRoute = () => setRoutePath(getCurrentRoute());
     window.addEventListener("popstate", updateRoute);
     return () => window.removeEventListener("popstate", updateRoute);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let controller: AbortController | null = null;
+
+    const loadPlatforms = async () => {
+      controller?.abort();
+      controller = new AbortController();
+
+      try {
+        const platforms = await fetchSolanaPlatforms(
+          {
+            apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
+            baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
+          },
+          controller.signal,
+        );
+        if (cancelled) return;
+        setTrackallProtocols(sortTrackallProtocols(platforms.map(mapTrackallPlatformToProtocol)));
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
+        console.error(error);
+      }
+    };
+
+    loadPlatforms();
+    const intervalId = window.setInterval(loadPlatforms, trackallRefreshMs());
+
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const pushRoute = useCallback((pathname: string, networkId: string | null = activeNetworkFilter?.id ?? null) => {
@@ -716,11 +759,11 @@ export function App() {
     () => ({
       onOpenNetwork: handleOpenNetwork,
       onOpenProtocol: (protocolId: string) => {
-        const protocol = PROTOCOLS.find((item) => item.id === protocolId);
+        const protocol = allProtocols.find((item) => item.id === protocolId);
         if (protocol) handleOpenProtocol(protocol);
       },
     }),
-    [handleOpenNetwork, handleOpenProtocol],
+    [allProtocols, handleOpenNetwork, handleOpenProtocol],
   );
 
   useMockGlobeActivity(homeRouteActive, activityHandlers, activeNetworkFilter, filteredProtocols);
@@ -775,7 +818,7 @@ export function App() {
             activeNetworkFilter={activeNetworkFilter}
             protocols={filteredProtocols}
             onOpenProtocol={(protocolId) => {
-              const protocol = PROTOCOLS.find((item) => item.id === protocolId);
+              const protocol = allProtocols.find((item) => item.id === protocolId);
               if (protocol) handleOpenProtocol(protocol);
             }}
           />
@@ -787,6 +830,7 @@ export function App() {
           />
         ) : networkRouteActive ? (
           <NetworkPage
+            protocols={allProtocols}
             network={activeNetwork}
             requestedId={activeNetworkId}
             onBack={handleBackToGlobe}
@@ -795,6 +839,7 @@ export function App() {
           />
         ) : anyNetworkRouteActive ? (
           <NetworkPage
+            protocols={allProtocols}
             network={null}
             requestedId={activeNetworkId}
             onBack={handleBackToGlobe}
