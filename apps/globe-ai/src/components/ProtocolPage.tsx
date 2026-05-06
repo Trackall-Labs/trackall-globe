@@ -79,7 +79,15 @@ const CHART_RANGES: { key: ChartRange; label: string; size: number }[] = [
 ];
 
 function protocolInitials(protocol: Protocol) {
-  return protocol.symbol.slice(0, 4);
+  const symbol = protocol.symbol?.trim();
+  if (symbol) return symbol.slice(0, 4);
+  return protocol.name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 function metricValue(metric: ProtocolDetailMetric) {
@@ -510,6 +518,7 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
   const someOnPage = !allOnPage && pagedUsers.some((user) => selectedWallets.has(user.wallet));
 
   if (!protocol || !detail) return <NotFound requestedId={requestedId} onBack={onBack} />;
+  const symbol = protocol.symbol?.trim();
 
   const selectSort = (key: UserSortKey) => {
     if (sortKey === key) {
@@ -578,7 +587,7 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-                {protocol.category} · {protocol.symbol}
+                {symbol ? `${protocol.category} · ${symbol}` : protocol.category}
               </div>
               <h1 className="mt-1 font-heading text-3xl tracking-tight">{protocol.name}</h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -602,12 +611,14 @@ export function ProtocolPage({ protocol, requestedId, onBack, onOpenNetwork, onO
           </div>
 
           <dl className="grid grid-cols-1 gap-x-8 gap-y-3 border-t border-border/60 pt-4 sm:grid-cols-3">
-            <div>
-              <dt className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
-                Symbol
-              </dt>
-              <dd className="mt-1 text-sm">{protocol.symbol}</dd>
-            </div>
+            {symbol ? (
+              <div>
+                <dt className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
+                  Symbol
+                </dt>
+                <dd className="mt-1 text-sm">{symbol}</dd>
+              </div>
+            ) : null}
             <div>
               <dt className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
                 Chains

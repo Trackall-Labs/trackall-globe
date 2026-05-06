@@ -490,12 +490,21 @@ function ActivityChartCard({
 }
 
 function ProtocolLogo({ protocol }: { protocol: Protocol }) {
+  const symbol = protocol.symbol?.trim();
   return (
     <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-border/60 bg-background/40 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
       {protocol.logo ? (
         <img src={protocol.logo} alt="" className="size-full object-cover" />
+      ) : symbol ? (
+        symbol.slice(0, 3)
       ) : (
-        protocol.symbol.slice(0, 3)
+        protocol.name
+          .split(/\s+/)
+          .map((part) => part[0])
+          .filter(Boolean)
+          .slice(0, 2)
+          .join("")
+          .toUpperCase()
       )}
     </div>
   );
@@ -570,9 +579,11 @@ function TopProtocolsTable({
                       <Badge variant="outline" className="h-4 px-1 font-mono text-[9px]">
                         {row.protocol.category}
                       </Badge>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {row.protocol.symbol}
-                      </span>
+                      {row.protocol.symbol?.trim() ? (
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {row.protocol.symbol?.trim()}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>

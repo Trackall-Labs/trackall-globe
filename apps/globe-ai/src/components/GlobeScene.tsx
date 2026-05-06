@@ -84,6 +84,18 @@ function getFanOffset(clusterId: string, protocolId: string, index: number, radi
   };
 }
 
+function protocolInitials(protocol: Protocol, maxLength: number) {
+  const symbol = protocol.symbol?.trim();
+  if (symbol) return symbol.slice(0, maxLength);
+  return protocol.name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, Math.max(1, Math.min(maxLength, 2)))
+    .join("")
+    .toUpperCase();
+}
+
 type DragState = {
   x: number;
   y: number;
@@ -1086,7 +1098,7 @@ export function GlobeScene({
                   aria-label={`${protocol.name} protocol marker`}
                 >
                   <span className="protocol-marker-logo">
-                    {protocol.logo ? <img src={protocol.logo} alt="" /> : protocol.symbol.slice(0, 3)}
+                    {protocol.logo ? <img src={protocol.logo} alt="" /> : protocolInitials(protocol, 3)}
                   </span>
                   <span className="protocol-marker-copy">
                     <span className="protocol-marker-label">{protocol.name}</span>
@@ -1120,7 +1132,7 @@ export function GlobeScene({
                 <span className="protocol-cluster-stack">
                   {visible.map((p) => (
                     <span key={p.id} className="protocol-cluster-logo">
-                      {p.logo ? <img src={p.logo} alt="" /> : p.symbol.slice(0, 2)}
+                      {p.logo ? <img src={p.logo} alt="" /> : protocolInitials(p, 2)}
                     </span>
                   ))}
                 </span>
@@ -1158,7 +1170,7 @@ export function GlobeScene({
                       aria-label={`${protocol.name} protocol marker`}
                     >
                       <span className="protocol-marker-logo">
-                        {protocol.logo ? <img src={protocol.logo} alt="" /> : protocol.symbol.slice(0, 3)}
+                        {protocol.logo ? <img src={protocol.logo} alt="" /> : protocolInitials(protocol, 3)}
                       </span>
                       <span className="protocol-marker-copy">
                         <span className="protocol-marker-label">{protocol.name}</span>

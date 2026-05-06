@@ -562,6 +562,7 @@ function parsePlatform(value: unknown): TrackallPlatform | null {
     networks: readStringArray(value.networks),
     programIds: readStringArray(value.programIds),
     tags: parsePlatformTags(value.tags),
+    ticker: readString(value.ticker)?.trim() || undefined,
   };
 }
 
@@ -605,18 +606,6 @@ function categoryFromTags(tags: PlatformTag[]): ProtocolCategory {
   return "DeFi";
 }
 
-function protocolSymbol(platform: TrackallPlatform) {
-  const source = platform.defiLlamaId ?? platform.id ?? platform.name;
-  return source
-    .replace(/[^a-z0-9]+/gi, " ")
-    .trim()
-    .split(/\s+/)
-    .map((part) => part.charAt(0))
-    .join("")
-    .slice(0, 5)
-    .toUpperCase() || platform.name.slice(0, 5).toUpperCase();
-}
-
 export function mapTrackallPlatformToProtocol(platform: TrackallPlatform): Protocol {
   const fallback = fallbackLocation(platform.id);
   const lat = platform.location?.latitude ?? fallback.lat;
@@ -635,7 +624,7 @@ export function mapTrackallPlatformToProtocol(platform: TrackallPlatform): Proto
     networks: platform.networks.length > 0 ? platform.networks.map(networkName) : ["Solana"],
     programIds: platform.programIds,
     source: "trackall-api",
-    symbol: protocolSymbol(platform),
+    symbol: platform.ticker?.trim() || undefined,
     tags: platform.tags,
     website: platform.links?.website,
   };

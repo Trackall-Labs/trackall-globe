@@ -10,7 +10,7 @@ export type ProtocolCategory =
 export type Protocol = {
   id: string;
   name: string;
-  symbol: string;
+  symbol?: string;
   category: ProtocolCategory;
   networks: string[];
   tags: string[];

@@ -32,7 +32,15 @@ type Props = {
 };
 
 function protocolInitials(protocol: Protocol) {
-  return protocol.symbol.slice(0, 4);
+  const symbol = protocol.symbol?.trim();
+  if (symbol) return symbol.slice(0, 4);
+  return protocol.name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 function panelPosition(anchor: PreviewAnchor | null | undefined): React.CSSProperties {
@@ -78,6 +86,7 @@ export function ProtocolDetailPanel({
   const users = detail.metrics.find((metric) => metric.key === "users");
   const delta = tvl?.changes.h24 ?? 0;
   const positive = delta >= 0;
+  const symbol = protocol.symbol?.trim();
 
   return (
     <div
@@ -97,7 +106,7 @@ export function ProtocolDetailPanel({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="outline">{protocol.symbol}</Badge>
+            {symbol ? <Badge variant="outline">{symbol}</Badge> : null}
             <Badge variant="secondary">{protocol.category}</Badge>
           </div>
           <div className="mt-1 truncate text-base font-medium">{protocol.name}</div>

@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "scratchpad",
-      "dependencies": {
-        "@nightlylabs/trackall-sdk": "^0.4.4",
-      },
       "devDependencies": {
         "@types/node": "^24.12.2",
         "playwright": "^1.49.0",
@@ -19,7 +16,7 @@
       "name": "@orbit/globe-ai",
       "version": "0.0.0",
       "dependencies": {
-        "@nightlylabs/trackall-sdk": "^0.4.4",
+        "@nightlylabs/trackall-sdk": "^0.4.5",
         "@orbit/ui": "*",
         "@tailwindcss/vite": "^4.2.2",
         "@vitejs/plugin-react": "^6.0.1",
@@ -318,7 +315,7 @@
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.4", "", { "dependencies": { "@tybys/wasm-util": "^0.10.1" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow=="],
 
-    "@nightlylabs/trackall-sdk": ["@nightlylabs/trackall-sdk@0.4.4", "", { "dependencies": { "@elysiajs/eden": "1.4.9", "@types/bun": "^1.3.13" }, "peerDependencies": { "elysia": "1.4.28" } }, "sha512-iRzjk1ZJmuL1ftwtZDQk7ClW71FOaa6/uTdd/GPxxoTpXe7/zskNVMBYavxKNoGzJoY9IoZH+h+wbxS/M15YmQ=="],
+    "@nightlylabs/trackall-sdk": ["@nightlylabs/trackall-sdk@0.4.5", "", { "dependencies": { "@elysiajs/eden": "1.4.9", "@types/bun": "^1.3.13" }, "peerDependencies": { "elysia": "1.4.28" } }, "sha512-NfNh0Z7pu6zYcGmtIG7GoYyfFiVZWwtMYvpInzDppijqQpxlMNhEK9GPACNNM8tEukmM3f6XhpxdW52tbT6yzg=="],
 
     "@noble/ciphers": ["@noble/ciphers@1.3.0", "", {}, "sha512-2I0gnIVPtfnMw9ee9h1dJG7tp81+8Ob3OJb3Mv37rx5L40/b0i7djjCVvGOVqc9AEIQyvyu1i6ypKdFw8R8gQw=="],
 

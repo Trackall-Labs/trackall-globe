@@ -55,6 +55,7 @@ export function ProjectIndexPage({
           {protocols.map((protocol) => {
             const visibleNetworks = protocol.networks.slice(0, VISIBLE_NETWORKS);
             const overflow = protocol.networks.length - visibleNetworks.length;
+            const symbol = protocol.symbol?.trim();
             return (
               <Card
                 key={protocol.id}
@@ -71,9 +72,11 @@ export function ProjectIndexPage({
                     </div>
                     <div className="min-w-0">
                       <div className="truncate text-base font-medium">{protocol.name}</div>
-                      <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                        {protocol.symbol}
-                      </div>
+                      {symbol ? (
+                        <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                          {symbol}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <Button

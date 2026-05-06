@@ -422,6 +422,7 @@ function buildNetworkPortfolio(network: Network, index: number): PortfolioMock {
   const nativeValue = 860 + index * 420;
   const stableValue = 520 + index * 210;
   const protocolValue = 240 + protocols.length * 175 + index * 60;
+  const protocolSymbol = protocols[0]?.symbol?.trim() || network.symbol;
   const tokens: TokenHolding[] = [
     {
       symbol: network.symbol,
@@ -446,9 +447,9 @@ function buildNetworkPortfolio(network: Network, index: number): PortfolioMock {
       color: chartColor(1),
     },
     {
-      symbol: protocols[0]?.symbol ?? network.symbol,
+      symbol: protocolSymbol,
       name: protocols[0]?.name ?? `${network.name} ecosystem`,
-      balanceLabel: `${(protocolValue / Math.max(0.5, 4 + index)).toFixed(2)} ${protocols[0]?.symbol ?? network.symbol}`,
+      balanceLabel: `${(protocolValue / Math.max(0.5, 4 + index)).toFixed(2)} ${protocolSymbol}`,
       usdValue: protocolValue,
       usdValueChange24h: 1.4 + index * 0.18,
       usdValueChangePct24h: 0.52 + index * 0.05,
