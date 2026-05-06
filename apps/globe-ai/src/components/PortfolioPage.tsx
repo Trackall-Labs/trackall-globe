@@ -63,6 +63,7 @@ import {
 import {
   fetchSolanaPositionCache,
   fetchSolanaPositions,
+  fetchSolanaTokenMetadata,
   fetchSolanaTokens,
   type TrackallSolanaPosition,
   type TrackallSolanaToken,
@@ -707,9 +708,9 @@ function PortfolioLoadingState({
             <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-sky-400 via-emerald-400 to-amber-300 animate-[wallet-loading_1.3s_ease-in-out_infinite]" />
           </div>
 
-          {state?.positionError || state?.tokenError ? (
+          {state?.positionError || state?.tokenError || state?.positionTokenError ? (
             <div className="mt-5 rounded-xl border border-rose-500/30 bg-rose-500/8 px-3 py-2 font-mono text-[11px] text-rose-600 dark:text-rose-400">
-              {state.positionError ?? state.tokenError}
+              {state.positionError ?? state.tokenError ?? state.positionTokenError}
             </div>
           ) : null}
         </div>
@@ -1269,6 +1270,7 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
                                     <div className="flex items-center gap-3">
                                       <TokenLogo
                                         symbol={assetPrimarySymbol(row.asset)}
+                                        logoUrl={row.logoUrl}
                                         className="size-8"
                                       />
                                       <span>{row.asset}</span>
@@ -1324,7 +1326,11 @@ type RemotePortfolioState = {
   livePositions: TrackallSolanaPosition[];
   loadingCache: boolean;
   loadingLive: boolean;
+  loadingPositionTokens: boolean;
   loadingTokens: boolean;
+  positionTokenError: string | null;
+  positionTokens: TrackallSolanaToken[];
+  positionTokensLoaded: boolean;
   positionError: string | null;
   tokenError: string | null;
   tokensLoaded: boolean;
@@ -1334,16 +1340,77 @@ type RemotePortfolioState = {
 const REMOTE_PORTFOLIO_STATE_BY_ADDRESS = new Map<string, RemotePortfolioState>();
 
 function publishedPositions(state: RemotePortfolioState | null) {
-  if (!state || !state.cacheLoaded || !state.tokensLoaded) return [];
+  if (!state || !portfolioDataReady(state)) return [];
   return state.liveLoaded ? state.livePositions : state.cachePositions;
 }
 
 function portfolioDataReady(state: RemotePortfolioState | null) {
-  return Boolean(state?.cacheLoaded && state.tokensLoaded);
+  return Boolean(state?.cacheLoaded && state.tokensLoaded && state.positionTokensLoaded);
 }
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed";
+}
+
+function positionTokenMints(positions: TrackallSolanaPosition[]) {
+  const mints = new Set<string>();
+  for (const position of positions) {
+    const legGroups = [
+      position.supplied,
+      position.borrowed,
+      position.staked,
+      position.rewards,
+      position.poolTokens,
+      position.fees,
+    ];
+    for (const legs of legGroups) {
+      for (const leg of legs ?? []) {
+        const mint = leg.amount?.token?.trim();
+        if (mint) mints.add(mint);
+      }
+    }
+  }
+  return [...mints];
+}
+
+function missingPositionTokenMints(
+  positions: TrackallSolanaPosition[],
+  knownTokens: TrackallSolanaToken[],
+) {
+  const knownMints = new Set(knownTokens.map((token) => token.mint));
+  return positionTokenMints(positions).filter((mint) => !knownMints.has(mint));
+}
+
+function firstString(...values: Array<string | undefined>) {
+  return values.find((value) => value?.trim())?.trim();
+}
+
+function mergeTokensWithMetadata(tokens: TrackallSolanaToken[], metadata: TrackallSolanaToken[]) {
+  const byMint = new Map<string, TrackallSolanaToken>();
+  for (const token of metadata) {
+    byMint.set(token.mint, token);
+  }
+
+  for (const token of tokens) {
+    const metadataToken = byMint.get(token.mint);
+    byMint.set(
+      token.mint,
+      metadataToken
+        ? {
+            ...metadataToken,
+            ...token,
+            decimals: token.decimals ?? metadataToken.decimals,
+            image: firstString(token.image, metadataToken.image),
+            name: firstString(token.name, metadataToken.name),
+            pctPriceChange24h: token.pctPriceChange24h ?? metadataToken.pctPriceChange24h,
+            priceUsd: token.priceUsd ?? metadataToken.priceUsd,
+            symbol: firstString(token.symbol, metadataToken.symbol),
+          }
+        : token,
+    );
+  }
+
+  return [...byMint.values()];
 }
 
 export function PortfolioPage({
@@ -1389,10 +1456,13 @@ export function PortfolioPage({
   const portfolio = useMemo(() => {
     if (!shouldLoadSolanaWallet || !walletAddress) return fallbackPortfolio;
     const current = remotePortfolio?.address === walletAddress ? remotePortfolio : null;
+    const tokens = current?.tokensLoaded
+      ? mergeTokensWithMetadata(current.tokens, current.positionTokens)
+      : [];
     return mapTrackallPortfolioToViewModel({
       positions: publishedPositions(current),
       protocols,
-      tokens: current?.tokensLoaded ? current.tokens : [],
+      tokens,
       walletAddress,
     });
   }, [fallbackPortfolio, protocols, remotePortfolio, shouldLoadSolanaWallet, walletAddress]);
@@ -1436,7 +1506,11 @@ export function PortfolioPage({
       livePositions: [],
       loadingCache: true,
       loadingLive: true,
+      loadingPositionTokens: true,
       loadingTokens: true,
+      positionTokenError: null,
+      positionTokens: [],
+      positionTokensLoaded: false,
       positionError: null,
       tokenError: null,
       tokensLoaded: false,
@@ -1467,9 +1541,63 @@ export function PortfolioPage({
         if (controller.signal.aborted) return;
         setRemotePortfolio((current) =>
           current?.address === loadWalletAddress
-            ? { ...current, loadingCache: false, positionError: errorMessage(error) }
+            ? {
+                ...current,
+                loadingCache: false,
+                loadingPositionTokens: false,
+                positionError: errorMessage(error),
+              }
             : current,
         );
+      });
+
+    const cachePositionTokensPromise = Promise.all([cachePromise, tokensPromise])
+      .then(([cache, tokens]) => {
+        const mints = missingPositionTokenMints(cache.positions, tokens);
+        if (mints.length === 0) {
+          setRemotePortfolio((current) =>
+            current?.address === loadWalletAddress
+              ? {
+                  ...current,
+                  loadingPositionTokens: false,
+                  positionTokenError: null,
+                  positionTokens: [],
+                  positionTokensLoaded: true,
+                }
+              : current,
+          );
+          return [];
+        }
+
+        return fetchSolanaTokenMetadata(mints, config, controller.signal).then((positionTokens) => {
+          setRemotePortfolio((current) =>
+            current?.address === loadWalletAddress
+              ? {
+                  ...current,
+                  loadingPositionTokens: false,
+                  positionTokenError: null,
+                  positionTokens,
+                  positionTokensLoaded: true,
+                }
+              : current,
+          );
+          return positionTokens;
+        });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setRemotePortfolio((current) =>
+            current?.address === loadWalletAddress
+              ? {
+                  ...current,
+                  loadingPositionTokens: false,
+                  positionTokenError: errorMessage(error),
+                  positionTokensLoaded: true,
+                }
+              : current,
+          );
+        }
+        return [];
       });
 
     livePromise
@@ -1493,6 +1621,38 @@ export function PortfolioPage({
             ? { ...current, loadingLive: false, positionError: errorMessage(error) }
             : current,
         );
+      });
+
+    Promise.all([livePromise, tokensPromise, cachePositionTokensPromise])
+      .then(([positions, tokens, cachePositionTokens]) => {
+        const mints = missingPositionTokenMints(positions, [
+          ...tokens,
+          ...cachePositionTokens,
+        ]);
+        if (mints.length === 0) return;
+
+        fetchSolanaTokenMetadata(mints, config, controller.signal)
+          .then((positionTokens) => {
+            setRemotePortfolio((current) => {
+              if (!current || current.address !== loadWalletAddress) return current;
+              return {
+                ...current,
+                positionTokenError: null,
+                positionTokens: mergeTokensWithMetadata(current.positionTokens, positionTokens),
+              };
+            });
+          })
+          .catch((error) => {
+            if (controller.signal.aborted) return;
+            setRemotePortfolio((current) =>
+              current?.address === loadWalletAddress
+                ? { ...current, positionTokenError: errorMessage(error) }
+                : current,
+            );
+          });
+      })
+      .catch(() => {
+        // Individual cache, live, and wallet-token requests already update visible state.
       });
 
     tokensPromise
@@ -1527,8 +1687,7 @@ export function PortfolioPage({
     if (
       !pendingWalletAddress ||
       pendingWalletAddress === walletAddress ||
-      !pendingPortfolioStatus?.cacheLoaded ||
-      !pendingPortfolioStatus.tokensLoaded
+      !portfolioDataReady(pendingPortfolioStatus)
     ) {
       return;
     }

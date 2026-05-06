@@ -172,9 +172,9 @@ function parseSolanaPosition(value: unknown): TrackallSolanaPosition | null {
   };
 }
 
-function parseSolanaToken(value: unknown): TrackallSolanaToken | null {
+function parseSolanaToken(value: unknown, fallbackMint?: string): TrackallSolanaToken | null {
   if (!isRecord(value)) return null;
-  const mint = readString(value.mint);
+  const mint = readString(value.mint) ?? readString(value.mintAddress) ?? fallbackMint;
   if (!mint) return null;
 
   return {
@@ -390,7 +390,48 @@ export async function fetchSolanaTokens(
     throw new Error("Trackall API returned an invalid tokens payload");
   }
 
-  return data.map(parseSolanaToken).filter((token): token is TrackallSolanaToken => token !== null);
+  return data.map((item) => parseSolanaToken(item)).filter((token): token is TrackallSolanaToken => token !== null);
+}
+
+const TOKEN_METADATA_BATCH_SIZE = 20;
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function fetchSolanaTokenMetadataBatch(
+  mints: string[],
+  config: TrackallApiConfig,
+  signal?: AbortSignal,
+): Promise<TrackallSolanaToken[]> {
+  const params = new URLSearchParams({ addresses: mints.join(",") });
+  const data = await fetchTrackallJson(`api/solana/tokens?${params.toString()}`, config, signal);
+  if (!isRecord(data)) {
+    throw new Error("Trackall API returned an invalid token metadata payload");
+  }
+
+  return Object.entries(data)
+    .map(([mint, token]) => parseSolanaToken(token, mint))
+    .filter((token): token is TrackallSolanaToken => token !== null);
+}
+
+export async function fetchSolanaTokenMetadata(
+  mints: string[],
+  config: TrackallApiConfig = {},
+  signal?: AbortSignal,
+): Promise<TrackallSolanaToken[]> {
+  const dedupedMints = [...new Set(mints.map((mint) => mint.trim()).filter(Boolean))];
+  if (dedupedMints.length === 0) return [];
+
+  const batches = chunkArray(dedupedMints, TOKEN_METADATA_BATCH_SIZE);
+  const results = await Promise.all(
+    batches.map((batch) => fetchSolanaTokenMetadataBatch(batch, config, signal)),
+  );
+  return results.flat();
 }
 
 export function trackallRefreshMs() {

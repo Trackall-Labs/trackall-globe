@@ -28,6 +28,7 @@ export type DefiPositionRow = {
   asset: string;
   balance: string;
   altBalance?: string;
+  logoUrl?: string;
   usd: number;
   usdChange24h: number;
   usdChangePct24h: number;
@@ -545,6 +546,7 @@ function positionLegRows(
       return {
         asset: symbol,
         balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
+        logoUrl: token?.image,
         usd,
         usdChange24h: usd * (numberFromApi(position.pctUsdValueChange24) / 100),
         usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
@@ -560,6 +562,7 @@ function positionLegRows(
       const symbol = mint ? tokenSymbol(tokenByMint.get(mint), mint) : "Asset";
       return {
         balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
+        logoUrl: tokenByMint.get(mint)?.image,
         symbol,
       };
     });
@@ -570,6 +573,7 @@ function positionLegRows(
         asset: labels.map((item) => item.symbol).join(" — "),
         balance: labels[0]?.balance ?? "0",
         altBalance: [labels[1]?.balance, feeLabel].filter(Boolean).join(" · ") || undefined,
+        logoUrl: labels[0]?.logoUrl,
         usd: numberFromApi(position.usdValue),
         usdChange24h: numberFromApi(position.usdValue) * (numberFromApi(position.pctUsdValueChange24) / 100),
         usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
