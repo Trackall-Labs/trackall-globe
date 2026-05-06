@@ -1423,6 +1423,32 @@ input {
   }
 }
 
+@keyframes wallet-loading {
+  0% {
+    transform: translateX(-120%);
+  }
+  50% {
+    transform: translateX(35%);
+  }
+  100% {
+    transform: translateX(155%);
+  }
+}
+
+@keyframes wallet-pulse {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.82);
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.18);
+  }
+}
+
 @media (max-width: 979px), (max-height: 679px) {
   .topbar {
     align-items: stretch;

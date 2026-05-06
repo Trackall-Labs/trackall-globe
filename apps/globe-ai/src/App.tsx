@@ -809,6 +809,7 @@ export function App() {
         ) : portfolioRouteActive ? (
           <PortfolioPage
             activeNetworkFilter={activeNetworkFilter}
+            protocols={allProtocols}
             walletAddress={portfolioAddress}
             onClearWallet={handleNavigatePortfolio}
             onOpenWallet={handleOpenPortfolioAddress}

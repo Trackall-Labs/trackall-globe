@@ -1,6 +1,8 @@
 import { chartColor } from "@orbit/ui/patterns/charts/chart";
 import { NETWORKS, type Network } from "./networks";
 import { PROTOCOLS } from "./protocols";
+import type { TrackallPositionLeg, TrackallSolanaPosition, TrackallSolanaToken } from "./trackall-api";
+import type { Protocol } from "./types";
 
 export const RECENT_WALLETS_STORAGE_KEY = "globe-ai:recent-wallets";
 export const MAX_RECENT_WALLETS = 5;
@@ -9,6 +11,7 @@ export type AllocationKind = "tokens" | "defi";
 export type DefiGroupKind = "Lending" | "Liquidity" | "Staking";
 
 export type TokenHolding = {
+  tokenId?: string;
   symbol: string;
   name: string;
   balanceLabel: string;
@@ -18,6 +21,7 @@ export type TokenHolding = {
   price: number;
   priceChangePct24h: number;
   color: string;
+  logoUrl?: string;
 };
 
 export type DefiPositionRow = {
@@ -41,6 +45,7 @@ export type DefiProtocolBlock = {
   protocolId: string;
   protocolName: string;
   protocolHref: string;
+  protocolLogo?: string;
   totalValue: number;
   groups: DefiPositionGroup[];
 };
@@ -50,6 +55,7 @@ export type DefiAllocationSlice = {
   name: string;
   usdValue: number;
   color: string;
+  logoUrl?: string;
 };
 
 export type PortfolioMock = {
@@ -461,6 +467,230 @@ export const PORTFOLIO_MOCK_BY_NETWORK: Record<string, PortfolioMock> =
 
 export function getPortfolioMockForNetwork(networkId: string | null | undefined) {
   return networkId ? (PORTFOLIO_MOCK_BY_NETWORK[networkId] ?? PORTFOLIO_MOCK) : PORTFOLIO_MOCK;
+}
+
+function numberFromApi(value: number | string | null | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function titleFromId(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function displayAmount(raw: string | undefined, decimals: number | undefined) {
+  if (!raw || decimals == null) return "0";
+  const value = Number(raw) / 10 ** decimals;
+  if (!Number.isFinite(value)) return "0";
+  if (value === 0) return "0";
+  if (Math.abs(value) < 0.0001) return "<0.0001";
+  if (Math.abs(value) >= 1000) {
+    return value.toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+    });
+  }
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 4,
+    minimumFractionDigits: 0,
+  });
+}
+
+function tokenSymbol(token: TrackallSolanaToken | undefined, mint: string) {
+  return token?.symbol?.trim() || shortenAddress(mint);
+}
+
+function positionKindToDefiKind(value: string): DefiGroupKind {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("lend") || normalized.includes("borrow")) return "Lending";
+  if (normalized.includes("stake")) return "Staking";
+  return "Liquidity";
+}
+
+function yieldLabel(position: TrackallSolanaPosition, legs: TrackallPositionLeg[]) {
+  const apy = numberFromApi(position.apy);
+  if (apy) return `${apy.toFixed(2)}% APY`;
+
+  const bestRate = legs
+    .map((leg) => numberFromApi(leg.supplyRate))
+    .filter((value) => value > 0)
+    .sort((a, b) => b - a)[0];
+  return bestRate ? `${bestRate.toFixed(2)}% APY` : null;
+}
+
+function positionLegRows(
+  position: TrackallSolanaPosition,
+  tokenByMint: Map<string, TrackallSolanaToken>,
+): DefiPositionRow[] {
+  const directLegs = [
+    ...(position.supplied ?? []),
+    ...(position.borrowed ?? []),
+    ...(position.staked ?? []),
+    ...(position.rewards ?? []),
+  ];
+  if (directLegs.length > 0) {
+    return directLegs.map((leg) => {
+      const mint = leg.amount?.token ?? "";
+      const token = mint ? tokenByMint.get(mint) : undefined;
+      const symbol = mint ? tokenSymbol(token, mint) : "Asset";
+      const usd = numberFromApi(leg.usdValue);
+      return {
+        asset: symbol,
+        balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
+        usd,
+        usdChange24h: usd * (numberFromApi(position.pctUsdValueChange24) / 100),
+        usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
+        yieldLabel: yieldLabel(position, directLegs),
+      };
+    });
+  }
+
+  const poolTokens = position.poolTokens ?? [];
+  if (poolTokens.length > 0) {
+    const labels = poolTokens.map((leg) => {
+      const mint = leg.amount?.token ?? "";
+      const symbol = mint ? tokenSymbol(tokenByMint.get(mint), mint) : "Asset";
+      return {
+        balance: `${displayAmount(leg.amount?.amount, leg.amount?.decimals)} ${symbol}`,
+        symbol,
+      };
+    });
+    const feeUsd = (position.fees ?? []).reduce((total, leg) => total + numberFromApi(leg.usdValue), 0);
+    const feeLabel = feeUsd > 0 ? `fees ${formatUsd(feeUsd)}` : null;
+    return [
+      {
+        asset: labels.map((item) => item.symbol).join(" — "),
+        balance: labels[0]?.balance ?? "0",
+        altBalance: [labels[1]?.balance, feeLabel].filter(Boolean).join(" · ") || undefined,
+        usd: numberFromApi(position.usdValue),
+        usdChange24h: numberFromApi(position.usdValue) * (numberFromApi(position.pctUsdValueChange24) / 100),
+        usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
+        yieldLabel: position.feeBps ? `${numberFromApi(position.feeBps).toFixed(0)} bps fee` : null,
+      },
+    ];
+  }
+
+  return [
+    {
+      asset: titleFromId(position.positionKind),
+      balance: position.poolAddress ? shortenAddress(position.poolAddress) : "Position",
+      usd: numberFromApi(position.usdValue),
+      usdChange24h: numberFromApi(position.usdValue) * (numberFromApi(position.pctUsdValueChange24) / 100),
+      usdChangePct24h: numberFromApi(position.pctUsdValueChange24),
+      yieldLabel: yieldLabel(position, []),
+    },
+  ];
+}
+
+function protocolMetadata(platformId: string, protocols: Protocol[]) {
+  return protocols.find((protocol) => protocol.id === platformId || protocol.id === platformId.replace(/-dao$/, ""));
+}
+
+export function mapTrackallPortfolioToViewModel({
+  positions,
+  protocols,
+  tokens,
+  walletAddress,
+}: {
+  positions: TrackallSolanaPosition[];
+  protocols: Protocol[];
+  tokens: TrackallSolanaToken[];
+  walletAddress: string;
+}): PortfolioMock {
+  const tokenByMint = new Map(tokens.map((token) => [token.mint, token]));
+  const mappedTokens = tokens
+    .map<TokenHolding>((token, index) => {
+      const symbol = token.symbol?.trim() || shortenAddress(token.mint);
+      const usdValue = numberFromApi(token.usdValue);
+      const priceChangePct24h = numberFromApi(token.pctPriceChange24h);
+      return {
+        balanceLabel: `${token.uiAmount ?? displayAmount(token.amount, token.decimals)} ${symbol}`,
+        color: chartColor(index % 5),
+        logoUrl: token.image,
+        name: token.name?.trim() || symbol,
+        price: numberFromApi(token.priceUsd),
+        priceChangePct24h,
+        symbol,
+        tokenId: `${token.mint}:${token.tokenAccount ?? ""}`,
+        usdValue,
+        usdValueChange24h: usdValue * (priceChangePct24h / 100),
+        usdValueChangePct24h: priceChangePct24h,
+      };
+    })
+    .filter((token) => token.usdValue > 0)
+    .sort((a, b) => b.usdValue - a.usdValue);
+
+  const groupsByProtocol = new Map<string, DefiPositionGroup[]>();
+  for (const position of positions) {
+    const rows = positionLegRows(position, tokenByMint);
+    const value = numberFromApi(position.usdValue) || rows.reduce((total, row) => total + row.usd, 0);
+    const group: DefiPositionGroup = {
+      kind: positionKindToDefiKind(position.positionKind),
+      rows,
+      value,
+      walletShort: walletAddress,
+    };
+
+    const groups = groupsByProtocol.get(position.platformId) ?? [];
+    groups.push(group);
+    groupsByProtocol.set(position.platformId, groups);
+  }
+
+  const defiPositions = Array.from(groupsByProtocol.entries())
+    .map<DefiProtocolBlock>(([platformId, groups]) => {
+      const metadata = protocolMetadata(platformId, protocols);
+      const totalValue = groups.reduce((total, group) => total + group.value, 0);
+      return {
+        groups,
+        protocolHref: metadata?.website ?? "#",
+        protocolId: platformId,
+        protocolLogo: metadata?.logo,
+        protocolName: (metadata?.name ?? titleFromId(platformId)).toUpperCase(),
+        totalValue,
+      };
+    })
+    .filter((protocol) => protocol.totalValue > 0)
+    .sort((a, b) => b.totalValue - a.totalValue);
+
+  const defiAllocation = defiPositions.map((position, index) => ({
+    color: chartColor(index % 5),
+    logoUrl: position.protocolLogo,
+    name: position.protocolName,
+    protocolId: position.protocolId,
+    usdValue: position.totalValue,
+  }));
+  const holdingsTotal = mappedTokens.reduce((total, token) => total + token.usdValue, 0);
+  const defiTotal = defiAllocation.reduce((total, allocation) => total + allocation.usdValue, 0);
+  const netWorth = holdingsTotal + defiTotal;
+  const netWorthChange24h =
+    mappedTokens.reduce((total, token) => total + token.usdValueChange24h, 0) +
+    defiPositions.reduce(
+      (total, protocol) =>
+        total +
+        protocol.groups.reduce(
+          (groupTotal, group) => groupTotal + group.rows.reduce((rowTotal, row) => rowTotal + row.usdChange24h, 0),
+          0,
+        ),
+      0,
+    );
+
+  return {
+    defiAllocation,
+    defiPositions,
+    holdingsTotal,
+    netWorth,
+    netWorthChange24h,
+    netWorthChangePct24h: netWorth > 0 ? (netWorthChange24h / netWorth) * 100 : 0,
+    tokens: mappedTokens,
+  };
 }
 
 export function shortenAddress(addr: string): string {

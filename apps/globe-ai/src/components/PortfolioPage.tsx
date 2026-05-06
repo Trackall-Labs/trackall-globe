@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownRightIcon,
   ArrowUpRightIcon,
@@ -57,9 +57,18 @@ import {
   formatUsdCompact,
   formatUsdDelta,
   getPortfolioMockForNetwork,
+  mapTrackallPortfolioToViewModel,
   shortenAddress,
 } from "@/lib/portfolio-mock";
+import {
+  fetchSolanaPositionCache,
+  fetchSolanaPositions,
+  fetchSolanaTokens,
+  type TrackallSolanaPosition,
+  type TrackallSolanaToken,
+} from "@/lib/trackall-api";
 import type { Network } from "@/lib/networks";
+import type { Protocol } from "@/lib/types";
 
 function copyToClipboard(value: string) {
   if (typeof navigator === "undefined" || !navigator.clipboard) return;
@@ -162,11 +171,13 @@ function LogoAvatar({
 
 function TokenLogo({
   color,
+  logoUrl,
   shape,
   symbol,
   className,
 }: {
   color?: string;
+  logoUrl?: string;
   shape?: "circle" | "square";
   symbol: string;
   className?: string;
@@ -177,7 +188,7 @@ function TokenLogo({
       color={color}
       fallback={symbol}
       shape={shape}
-      src={TOKEN_LOGOS[symbol]}
+      src={logoUrl ?? TOKEN_LOGOS[symbol]}
       className={className}
     />
   );
@@ -188,12 +199,14 @@ function ProtocolLogo({
   shape,
   protocolId,
   protocolName,
+  logoUrl,
   className,
 }: {
   color?: string;
   shape?: "circle" | "square";
   protocolId: string;
   protocolName: string;
+  logoUrl?: string;
   className?: string;
 }) {
   return (
@@ -202,7 +215,7 @@ function ProtocolLogo({
       color={color}
       fallback={protocolName}
       shape={shape}
-      src={PROTOCOL_LOGOS[protocolId]}
+      src={logoUrl ?? PROTOCOL_LOGOS[protocolId]}
       className={className}
     />
   );
@@ -294,9 +307,11 @@ function defiKindClasses(kind: DefiGroupKind): string {
 function AddressChip({
   address,
   className,
+  copyable = true,
 }: {
   address: string;
   className?: string;
+  copyable?: boolean;
 }) {
   return (
     <span
@@ -306,17 +321,19 @@ function AddressChip({
       }
     >
       <span>{shortenAddress(address)}</span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          copyToClipboard(address);
-        }}
-        aria-label="Copy address"
-        className="grid size-4 place-items-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-      >
-        <CopyIcon className="size-3" />
-      </button>
+      {copyable ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            copyToClipboard(address);
+          }}
+          aria-label="Copy address"
+          className="grid size-4 place-items-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+        >
+          <CopyIcon className="size-3" />
+        </button>
+      ) : null}
     </span>
   );
 }
@@ -652,6 +669,55 @@ function PortfolioEmptyState({
   );
 }
 
+function PortfolioLoadingState({
+  address,
+  state,
+}: {
+  address: string;
+  state: RemotePortfolioState | null;
+}) {
+  return (
+    <div className="relative z-10 mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-3xl items-center px-6 py-10">
+      <div className="relative w-full overflow-hidden rounded-2xl border border-border/60 bg-background/48 p-6 shadow-[0_30px_90px_-58px_rgb(0_0_0/0.95)] backdrop-blur-xl md:p-8">
+        <div
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/25 to-transparent"
+        />
+        <div aria-hidden className="pointer-events-none absolute inset-0 opacity-45">
+          <div className="absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/10 animate-[wallet-pulse_2.4s_ease-in-out_infinite]" />
+          <div className="absolute left-1/2 top-1/2 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/12 animate-[wallet-pulse_2.4s_ease-in-out_0.35s_infinite]" />
+          <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/14 animate-[wallet-pulse_2.4s_ease-in-out_0.7s_infinite]" />
+        </div>
+
+        <div className="relative">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/55 px-3 py-1.5 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.24em]">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+            </span>
+            Wallet inspector
+          </div>
+          <h2 className="mt-5 font-heading text-3xl tracking-tight md:text-4xl">
+            Preparing portfolio
+          </h2>
+          <div className="mt-3 max-w-md font-mono text-sm text-muted-foreground tabular-nums">
+            {shortenAddress(address)}
+          </div>
+          <div className="mt-6 h-2 overflow-hidden rounded-full bg-foreground/[0.06]">
+            <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-sky-400 via-emerald-400 to-amber-300 animate-[wallet-loading_1.3s_ease-in-out_infinite]" />
+          </div>
+
+          {state?.positionError || state?.tokenError ? (
+            <div className="mt-5 rounded-xl border border-rose-500/30 bg-rose-500/8 px-3 py-2 font-mono text-[11px] text-rose-600 dark:text-rose-400">
+              {state.positionError ?? state.tokenError}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NetWorthAndAllocation({
   networkName,
   portfolio,
@@ -677,15 +743,15 @@ function NetWorthAndAllocation({
   const slices =
     allocationKind === "tokens"
       ? portfolio.tokens.map((t) => ({
-          key: t.symbol,
-          logoSrc: TOKEN_LOGOS[t.symbol],
+          key: t.tokenId ?? t.symbol,
+          logoSrc: t.logoUrl ?? TOKEN_LOGOS[t.symbol],
           name: t.symbol,
           value: t.usdValue,
           color: t.color,
         }))
       : portfolio.defiAllocation.map((a) => ({
           key: a.protocolId,
-          logoSrc: PROTOCOL_LOGOS[a.protocolId],
+          logoSrc: a.logoUrl ?? PROTOCOL_LOGOS[a.protocolId],
           name: a.name,
           value: a.usdValue,
           color: a.color,
@@ -894,6 +960,7 @@ function ProtocolStripRow({
               }
               protocolId={p.protocolId}
               protocolName={p.protocolName}
+              logoUrl={p.protocolLogo}
               shape="square"
               className="size-11 rounded-xl"
             />
@@ -1003,7 +1070,7 @@ function HoldingsSection({ portfolio }: { portfolio: PortfolioMock }) {
           <TableBody className="[&_tr]:border-border/60">
             {portfolio.tokens.map((token) => (
               <TableRow
-                key={token.symbol}
+                key={token.tokenId ?? token.symbol}
                 className="transition-colors hover:bg-muted/40"
               >
                 <TableCell>
@@ -1011,6 +1078,7 @@ function HoldingsSection({ portfolio }: { portfolio: PortfolioMock }) {
                     <TokenLogo
                       symbol={token.symbol}
                       color={token.color}
+                      logoUrl={token.logoUrl}
                       className="size-9"
                     />
                     <div className="min-w-0">
@@ -1083,7 +1151,7 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
             <div className="text-right">Assets</div>
             <div />
           </div>
-          <Accordion multiple defaultValue={allProtocolIds}>
+          <Accordion key={allProtocolIds.join("|")} multiple defaultValue={allProtocolIds}>
             {portfolio.defiPositions.map((protocol) => {
               const color = portfolio.defiAllocation.find(
                 (a) => a.protocolId === protocol.protocolId,
@@ -1112,6 +1180,7 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
                           color={color}
                           protocolId={protocol.protocolId}
                           protocolName={protocol.protocolName}
+                          logoUrl={protocol.protocolLogo}
                           className="size-9"
                         />
                         <div className="min-w-0">
@@ -1119,15 +1188,9 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
                             <span className="truncate text-sm font-medium">
                               {protocol.protocolName}
                             </span>
-                            <a
-                              href={protocol.protocolHref}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-muted-foreground transition-colors hover:text-foreground"
-                            >
+                            <span className="text-muted-foreground">
                               <ExternalLinkIcon className="size-3" />
-                            </a>
+                            </span>
                           </div>
                           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                             {protocol.protocolId}
@@ -1149,7 +1212,7 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
                         ))}
                       </div>
                       <div className="flex min-w-0">
-                        <AddressChip address={wallets[0] ?? "—"} />
+                        <AddressChip address={wallets[0] ?? "—"} copyable={false} />
                       </div>
                       <div className="flex justify-end">
                         <span className="inline-flex h-6 items-center rounded-full border border-border/60 bg-muted/35 px-2.5 font-mono text-[11px] text-muted-foreground tabular-nums">
@@ -1252,27 +1315,231 @@ function DefiPositionsSection({ portfolio }: { portfolio: PortfolioMock }) {
   );
 }
 
+type RemotePortfolioState = {
+  address: string;
+  cacheLoaded: boolean;
+  cachePositions: TrackallSolanaPosition[];
+  cachedAt: number | null;
+  liveLoaded: boolean;
+  livePositions: TrackallSolanaPosition[];
+  loadingCache: boolean;
+  loadingLive: boolean;
+  loadingTokens: boolean;
+  positionError: string | null;
+  tokenError: string | null;
+  tokensLoaded: boolean;
+  tokens: TrackallSolanaToken[];
+};
+
+const REMOTE_PORTFOLIO_STATE_BY_ADDRESS = new Map<string, RemotePortfolioState>();
+
+function publishedPositions(state: RemotePortfolioState | null) {
+  if (!state || !state.cacheLoaded || !state.tokensLoaded) return [];
+  return state.liveLoaded ? state.livePositions : state.cachePositions;
+}
+
+function portfolioDataReady(state: RemotePortfolioState | null) {
+  return Boolean(state?.cacheLoaded && state.tokensLoaded);
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Request failed";
+}
+
 export function PortfolioPage({
   activeNetworkFilter,
+  protocols,
   walletAddress,
   onClearWallet,
   onOpenWallet,
 }: {
   activeNetworkFilter: Network | null;
+  protocols: Protocol[];
   walletAddress: string | null;
   onClearWallet: () => void;
   onOpenWallet: (address: string) => void;
 }) {
-  const portfolio = getPortfolioMockForNetwork(activeNetworkFilter?.id);
+  const [pendingWalletAddress, setPendingWalletAddress] = useState<string | null>(null);
+  const loadWalletAddress = pendingWalletAddress ?? walletAddress;
+  const shouldLoadSolanaWallet = Boolean(loadWalletAddress && (!activeNetworkFilter || activeNetworkFilter.id === "solana"));
+  const [remotePortfolio, setRemotePortfolioState] = useState<RemotePortfolioState | null>(() => {
+    return walletAddress ? (REMOTE_PORTFOLIO_STATE_BY_ADDRESS.get(walletAddress) ?? null) : null;
+  });
+  const setRemotePortfolio = useCallback(
+    (
+      next:
+        | RemotePortfolioState
+        | null
+        | ((current: RemotePortfolioState | null) => RemotePortfolioState | null),
+    ) => {
+      setRemotePortfolioState((current) => {
+        const resolved = typeof next === "function" ? next(current) : next;
+        if (resolved) {
+          REMOTE_PORTFOLIO_STATE_BY_ADDRESS.set(resolved.address, resolved);
+        }
+        return resolved;
+      });
+    },
+    [],
+  );
+  const fallbackPortfolio = getPortfolioMockForNetwork(activeNetworkFilter?.id);
   const networkName = activeNetworkFilter?.name ?? "Solana";
   const networkSymbol = activeNetworkFilter?.symbol ?? "SOL";
   const sampleWallets = sampleWalletsForNetwork(activeNetworkFilter);
+  const portfolio = useMemo(() => {
+    if (!shouldLoadSolanaWallet || !walletAddress) return fallbackPortfolio;
+    const current = remotePortfolio?.address === walletAddress ? remotePortfolio : null;
+    return mapTrackallPortfolioToViewModel({
+      positions: publishedPositions(current),
+      protocols,
+      tokens: current?.tokensLoaded ? current.tokens : [],
+      walletAddress,
+    });
+  }, [fallbackPortfolio, protocols, remotePortfolio, shouldLoadSolanaWallet, walletAddress]);
+  const portfolioStatus = remotePortfolio?.address === walletAddress ? remotePortfolio : null;
+  const pendingPortfolioStatus = remotePortfolio?.address === pendingWalletAddress ? remotePortfolio : null;
+  const activeAddressStatus = remotePortfolio?.address === loadWalletAddress ? remotePortfolio : null;
+  const shouldShowLoading =
+    Boolean(loadWalletAddress) &&
+    shouldLoadSolanaWallet &&
+    (!walletAddress || !portfolioDataReady(portfolioStatus));
   const handleSubmit = useCallback(
     (next: string) => {
-      onOpenWallet(next);
+      setPendingWalletAddress(next);
     },
-    [onOpenWallet],
+    [],
   );
+
+  useEffect(() => {
+    if (!loadWalletAddress || !shouldLoadSolanaWallet) {
+      setRemotePortfolio(null);
+      return;
+    }
+
+    const cachedState = REMOTE_PORTFOLIO_STATE_BY_ADDRESS.get(loadWalletAddress);
+    if (cachedState && portfolioDataReady(cachedState)) {
+      setRemotePortfolio(cachedState);
+      return;
+    }
+
+    const controller = new AbortController();
+    const config = {
+      apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
+      baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
+    };
+    const initialState: RemotePortfolioState = {
+      address: loadWalletAddress,
+      cacheLoaded: false,
+      cachePositions: [],
+      cachedAt: null,
+      liveLoaded: false,
+      livePositions: [],
+      loadingCache: true,
+      loadingLive: true,
+      loadingTokens: true,
+      positionError: null,
+      tokenError: null,
+      tokensLoaded: false,
+      tokens: [],
+    };
+
+    setRemotePortfolio(initialState);
+
+    const cachePromise = fetchSolanaPositionCache(loadWalletAddress, config, controller.signal);
+    const livePromise = fetchSolanaPositions(loadWalletAddress, config, controller.signal);
+    const tokensPromise = fetchSolanaTokens(loadWalletAddress, config, controller.signal);
+
+    cachePromise
+      .then((cache) => {
+        setRemotePortfolio((current) => {
+          if (!current || current.address !== loadWalletAddress) return current;
+          return {
+            ...current,
+            cacheLoaded: true,
+            cachePositions: cache.positions,
+            cachedAt: cache.cachedAt,
+            loadingCache: false,
+            positionError: null,
+          };
+        });
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setRemotePortfolio((current) =>
+          current?.address === loadWalletAddress
+            ? { ...current, loadingCache: false, positionError: errorMessage(error) }
+            : current,
+        );
+      });
+
+    livePromise
+      .then((positions) => {
+        setRemotePortfolio((current) =>
+          current?.address === loadWalletAddress
+            ? {
+                ...current,
+                liveLoaded: true,
+                livePositions: positions,
+                loadingLive: false,
+                positionError: null,
+              }
+            : current,
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setRemotePortfolio((current) =>
+          current?.address === loadWalletAddress
+            ? { ...current, loadingLive: false, positionError: errorMessage(error) }
+            : current,
+        );
+      });
+
+    tokensPromise
+      .then((tokens) => {
+        setRemotePortfolio((current) =>
+          current?.address === loadWalletAddress
+            ? {
+                ...current,
+                loadingTokens: false,
+                tokenError: null,
+                tokensLoaded: true,
+                tokens,
+              }
+            : current,
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setRemotePortfolio((current) =>
+          current?.address === loadWalletAddress
+            ? { ...current, loadingTokens: false, tokenError: errorMessage(error) }
+            : current,
+        );
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [loadWalletAddress, shouldLoadSolanaWallet]);
+
+  useEffect(() => {
+    if (
+      !pendingWalletAddress ||
+      pendingWalletAddress === walletAddress ||
+      !pendingPortfolioStatus?.cacheLoaded ||
+      !pendingPortfolioStatus.tokensLoaded
+    ) {
+      return;
+    }
+    onOpenWallet(pendingWalletAddress);
+  }, [onOpenWallet, pendingPortfolioStatus, pendingWalletAddress, walletAddress]);
+
+  useEffect(() => {
+    if (pendingWalletAddress && pendingWalletAddress === walletAddress) {
+      setPendingWalletAddress(null);
+    }
+  }, [pendingWalletAddress, walletAddress]);
 
   return (
     <div
@@ -1281,7 +1548,12 @@ export function PortfolioPage({
         (walletAddress ? " portfolio-detail-route" : "")
       }
     >
-      {walletAddress === null ? (
+      {shouldShowLoading && loadWalletAddress ? (
+        <>
+          <PortfolioEmptyBackground />
+          <PortfolioLoadingState address={loadWalletAddress} state={activeAddressStatus} />
+        </>
+      ) : walletAddress === null ? (
         <>
           <PortfolioEmptyBackground />
           <PortfolioEmptyState
