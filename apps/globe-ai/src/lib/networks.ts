@@ -39,7 +39,7 @@ export const NETWORKS: Network[] = [
     name: "Solana",
     symbol: "SOL",
     category: "L1",
-    consensus: "Proof of History + PoS",
+    consensus: "Proof of Stake",
     evmCompatible: false,
     hubLat: 1.3521,
     hubLng: 103.8198,

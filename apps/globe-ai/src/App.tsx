@@ -319,6 +319,7 @@ function useMockGlobeActivity(
   protocols: readonly Protocol[],
 ) {
   const eventIndexRef = useRef(0);
+  const activityToastIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!enabled) return;
@@ -336,10 +337,14 @@ function useMockGlobeActivity(
         description: event.description,
         id: toastId,
         actionProps: event.actionProps,
+        onClose: () => {
+          activityToastIdsRef.current.delete(toastId);
+        },
         timeout: ACTIVITY_TOAST_TIMEOUT_MS,
         title: event.title,
         type: event.type,
       });
+      activityToastIdsRef.current.add(toastId);
     };
 
     const schedule = (delay: number) => {
@@ -371,6 +376,15 @@ function useMockGlobeActivity(
       timeoutIds.clear();
     };
   }, [enabled, handlers, networkFilter, protocols]);
+
+  useEffect(() => {
+    if (enabled) return;
+
+    activityToastIdsRef.current.forEach((toastId) => {
+      toastManager.close(toastId);
+    });
+    activityToastIdsRef.current.clear();
+  }, [enabled]);
 }
 
 function useCompactLayout() {

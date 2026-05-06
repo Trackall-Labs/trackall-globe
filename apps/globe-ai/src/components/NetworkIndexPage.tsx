@@ -4,6 +4,8 @@ import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
 import { NETWORKS, networkInitials, type Network } from "@/lib/networks";
 
+const NETWORK_TAB_NETWORKS = NETWORKS.filter((network) => network.id === "solana");
+
 type Props = {
   activeNetworkFilter: Network | null;
   onFilterNetwork: (networkId: string) => void;
@@ -27,14 +29,14 @@ export function NetworkIndexPage({
 
       <main className="mx-auto max-w-6xl px-6 py-8">
         <section>
-          <h1 className="font-heading text-3xl tracking-tight">Supported networks</h1>
+          <h1 className="font-heading text-3xl tracking-tight">Supported network</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Browse all supported chains and open a dedicated analytics page for each network.
+            Open Solana's dedicated analytics page or use it as the active network filter.
           </p>
         </section>
 
         <section className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {NETWORKS.map((network) => {
+          {NETWORK_TAB_NETWORKS.map((network) => {
             const active = activeNetworkFilter?.id === network.id;
             return (
               <Card

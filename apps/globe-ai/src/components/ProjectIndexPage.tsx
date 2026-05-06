@@ -88,7 +88,7 @@ export function ProjectIndexPage({
                   </Button>
                 </div>
 
-                <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+                <p className="mt-3 min-h-10 line-clamp-2 text-sm text-muted-foreground">
                   {protocol.description}
                 </p>
 
@@ -115,7 +115,7 @@ export function ProjectIndexPage({
                 </div>
 
                 {(protocol.activeUsers != null && protocol.activeUsers > 0) || protocol.programIds ? (
-                  <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border/60 pt-3">
+                  <div className="mt-3 grid grid-cols-2 gap-2 border-y border-border/60 py-3">
                     {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
                       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                         <UsersIcon className="size-3.5 shrink-0" />
@@ -133,7 +133,7 @@ export function ProjectIndexPage({
                   </div>
                 ) : null}
 
-                <div className="mt-4 border-t border-border/60 pt-3">
+                <div className="mt-auto pt-3">
                   <Button
                     type="button"
                     variant="outline"
