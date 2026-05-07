@@ -51,7 +51,7 @@ jobs:
           VERCEL_CLI_VERSION: ${{ env.VERCEL_VERSION }}
         run: |
           set -euo pipefail
-          CLI="bunx --bun vercel@${VERCEL_CLI_VERSION}"
+          CLI="bunx vercel@${VERCEL_CLI_VERSION}"
 
           $CLI pull --yes --environment=preview --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --cwd apps/globe-ai
           $CLI build --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --cwd apps/globe-ai
