@@ -19,7 +19,6 @@ dist-ssr
 next-env.d.ts
 .vercel
 *.local
-.env
 .env.local
 .env.*.local
 
