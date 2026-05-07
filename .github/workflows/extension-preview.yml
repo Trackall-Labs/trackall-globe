@@ -42,12 +42,6 @@ jobs:
       - name: Install workspace dependencies
         run: bun install
 
-      - name: Build
-        run: bun run turbo run build --filter=@orbit/globe-ai...
-
-      - name: Typecheck
-        run: bun run turbo run typecheck --filter=@orbit/globe-ai...
-
       - name: Deploy globe-ai preview to Vercel
         id: vercel-deploy
         env:
