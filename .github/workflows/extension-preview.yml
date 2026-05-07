@@ -2,7 +2,7 @@ name: globe-ai-preview
 
 on:
   pull_request:
-    types: [ opened, synchronize, reopened ]
+    types: [opened, synchronize, reopened]
     paths:
       - "apps/globe-ai/**"
       - "packages/ui/**"
@@ -22,17 +22,24 @@ permissions:
   pull-requests: write
 
 env:
+  NODE_VERSION: "24"
   BUN_VERSION: "1.3.12"
   VERCEL_VERSION: "53.2.0"
   COMMENT_MARKER: "<!-- globe-ai-preview-comment -->"
+  VERCEL_TELEMETRY_DISABLED: "1"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -48,13 +55,18 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_CLI_VERSION: ${{ env.VERCEL_VERSION }}
+          VERCEL: ${{ env.VERCEL_VERSION }}
         run: |
           set -euo pipefail
-          CLI="bunx vercel@${VERCEL_CLI_VERSION}"
+          CLI="npx --yes vercel@${VERCEL}"
 
           $CLI pull --yes --environment=preview --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID"
-          DEPLOY_URL=$($CLI deploy --yes --target=preview --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" | tail -n1)
+          $CLI build --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID"
+
+          # Upload the CI-built artifact as a CLI deployment, not a Git deployment.
+          # This avoids Vercel blocking PR previews when the PR author is not on the Vercel team.
+          rm -rf .git
+          DEPLOY_URL=$($CLI deploy --prebuilt --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" | tail -n1)
 
           echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
 
