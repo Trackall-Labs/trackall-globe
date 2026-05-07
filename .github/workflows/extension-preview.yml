@@ -23,7 +23,7 @@ permissions:
 
 env:
   BUN_VERSION: "1.3.12"
-  VERCEL_VERSION: "48.0.0"
+  VERCEL_VERSION: "53.2.0"
   COMMENT_MARKER: "<!-- globe-ai-preview-comment -->"
 
 jobs:
