@@ -102,6 +102,18 @@ export type TrackallTopWallet = {
   capturedAt: string;
 };
 
+export type TrackallAggregateTopWalletProtocol = {
+  platformId: string;
+  totalUsd: number;
+  positionCount: number;
+  capturedAt: string;
+};
+
+export type TrackallAggregateTopWallet = TrackallTopWallet & {
+  protocolCount: number;
+  protocols: TrackallAggregateTopWalletProtocol[];
+};
+
 export type TrackallTopWalletsPlatform = {
   platformId: string;
   wallets: TrackallTopWallet[];
@@ -111,6 +123,12 @@ export type TrackallTopWalletsResponse = {
   asOfRunId: number | null;
   limit: number;
   platforms: TrackallTopWalletsPlatform[];
+};
+
+export type TrackallAggregateTopWalletsResponse = {
+  asOfRunId: number | null;
+  limit: number;
+  wallets: TrackallAggregateTopWallet[];
 };
 
 export type TrackallSolanaPlatformMetricPlotPoint = {
@@ -134,6 +152,7 @@ export type TrackallSolanaChainMetrics = {
   chain: "Solana";
   errorMessage: string | null;
   plot: TrackallSolanaPlatformMetricPlotPoint[];
+  usersPlot: TrackallSolanaPlatformUsersPlotPoint[];
   tvlChange24hPct: number | null;
   tvlPrevious24hUsd: number | null;
   tvlUsd: number | null;
@@ -712,6 +731,60 @@ function parseTopWalletsResponse(value: unknown): TrackallTopWalletsResponse | n
   };
 }
 
+function parseAggregateTopWalletProtocol(value: unknown): TrackallAggregateTopWalletProtocol | null {
+  if (!isRecord(value)) return null;
+  const platformId = readString(value.platformId);
+  const totalUsd = readFiniteDecimalNumber(value.totalUsd);
+  const positionCount = readNumber(value.positionCount);
+  const capturedAt = readString(value.capturedAt);
+
+  if (
+    !platformId ||
+    totalUsd === null ||
+    positionCount === null ||
+    !capturedAt ||
+    !Number.isFinite(Date.parse(capturedAt))
+  ) {
+    return null;
+  }
+
+  return {
+    capturedAt: new Date(capturedAt).toISOString(),
+    platformId,
+    positionCount,
+    totalUsd,
+  };
+}
+
+function parseAggregateTopWallet(value: unknown): TrackallAggregateTopWallet | null {
+  const base = parseTopWallet(value);
+  if (!base || !isRecord(value)) return null;
+  const protocolCount = readNumber(value.protocolCount);
+  if (protocolCount === null || !Array.isArray(value.protocols)) return null;
+
+  return {
+    ...base,
+    protocolCount,
+    protocols: value.protocols
+      .map(parseAggregateTopWalletProtocol)
+      .filter((protocol): protocol is TrackallAggregateTopWalletProtocol => protocol !== null),
+  };
+}
+
+function parseAggregateTopWalletsResponse(value: unknown): TrackallAggregateTopWalletsResponse | null {
+  if (!isRecord(value) || !Array.isArray(value.wallets)) return null;
+  const limit = readNumber(value.limit);
+  if (limit === null) return null;
+
+  return {
+    asOfRunId: readNumber(value.asOfRunId),
+    limit,
+    wallets: value.wallets
+      .map(parseAggregateTopWallet)
+      .filter((wallet): wallet is TrackallAggregateTopWallet => wallet !== null),
+  };
+}
+
 function readNullableIsoString(value: unknown) {
   if (value === null) return null;
   const raw = readString(value);
@@ -794,6 +867,7 @@ function parseChainMetrics(value: unknown): TrackallSolanaChainMetrics | null {
     chain: "Solana",
     errorMessage: readString(value.errorMessage),
     plot: parsePlatformMetricPlot(value.plot),
+    usersPlot: parsePlatformUsersPlot(value.usersPlot),
     tvlChange24hPct: readNullableMetric(value.tvlChange24hPct),
     tvlPrevious24hUsd: readNullableMetric(value.tvlPrevious24hUsd),
     tvlUsd: readNullableMetric(value.tvlUsd),
@@ -1100,6 +1174,23 @@ export async function fetchSolanaTopPortfolioWallets(
   });
   const data = await fetchTrackallJson(`api/solana/portfolio/top-wallets?${params.toString()}`, config, signal);
   const result = parseTopWalletsResponse(data);
+  if (!result) {
+    throw new Error("Trackall API returned an invalid top wallets payload");
+  }
+
+  return result;
+}
+
+export async function fetchSolanaTopAggregatePortfolioWallets(
+  limit = 100,
+  config: TrackallApiConfig = {},
+  signal?: AbortSignal,
+): Promise<TrackallAggregateTopWalletsResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+  });
+  const data = await fetchTrackallJson(`api/solana/portfolio/top-wallets/global?${params.toString()}`, config, signal);
+  const result = parseAggregateTopWalletsResponse(data);
   if (!result) {
     throw new Error("Trackall API returned an invalid top wallets payload");
   }

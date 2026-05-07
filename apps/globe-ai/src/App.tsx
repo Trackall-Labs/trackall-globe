@@ -52,6 +52,7 @@ import {
   mapTrackallPlatformToProtocol,
   sortTrackallProtocols,
   trackallRefreshMs,
+  type TrackallSolanaPlatformMetricsResponse,
   type TrackallSolanaPlatformMetrics,
 } from "./lib/trackall-api";
 import type { Protocol, WalletPin } from "./lib/types";
@@ -560,6 +561,9 @@ export function App() {
   const [trackallMetricsById, setTrackallMetricsById] = useState<Map<string, TrackallSolanaPlatformMetrics>>(
     () => new Map(),
   );
+  const [trackallSolanaMetrics, setTrackallSolanaMetrics] = useState<TrackallSolanaPlatformMetricsResponse | null>(
+    null,
+  );
   const [trackallMetricsStatus, setTrackallMetricsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [trackallMetricsError, setTrackallMetricsError] = useState<string | null>(null);
   const protocolPreviewCloseRef = useRef<number | null>(null);
@@ -625,6 +629,7 @@ export function App() {
         }
 
         if (metricsResult.status === "fulfilled") {
+          setTrackallSolanaMetrics(metricsResult.value);
           setTrackallMetricsById(
             new Map(metricsResult.value.platforms.map((metrics) => [metrics.platformId, metrics])),
           );
@@ -632,6 +637,7 @@ export function App() {
           setTrackallMetricsError(null);
         } else {
           console.error(metricsResult.reason);
+          setTrackallSolanaMetrics(null);
           setTrackallMetricsStatus("error");
           setTrackallMetricsError(
             metricsResult.reason instanceof Error ? metricsResult.reason.message : "Unable to load Trackall metrics",
@@ -880,6 +886,9 @@ export function App() {
           <NetworkPage
             protocols={allProtocols}
             network={activeNetwork}
+            solanaMetrics={trackallSolanaMetrics}
+            solanaMetricsError={trackallMetricsError}
+            solanaMetricsStatus={trackallMetricsStatus}
             requestedId={activeNetworkId}
             onBack={handleBackToGlobe}
             onOpenProtocol={handleOpenProtocol}
@@ -889,6 +898,9 @@ export function App() {
           <NetworkPage
             protocols={allProtocols}
             network={null}
+            solanaMetrics={trackallSolanaMetrics}
+            solanaMetricsError={trackallMetricsError}
+            solanaMetricsStatus={trackallMetricsStatus}
             requestedId={activeNetworkId}
             onBack={handleBackToGlobe}
             onOpenProtocol={handleOpenProtocol}

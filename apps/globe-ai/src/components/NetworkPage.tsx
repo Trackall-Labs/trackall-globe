@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   ActivityIcon,
   ArrowDownIcon,
@@ -69,10 +69,18 @@ import {
   type ProtocolUserType,
 } from "@/lib/protocol-stats";
 import type { Protocol } from "@/lib/types";
+import {
+  fetchSolanaTopAggregatePortfolioWallets,
+  type TrackallAggregateTopWallet,
+  type TrackallSolanaPlatformMetricsResponse,
+} from "@/lib/trackall-api";
 
 type Props = {
   network: Network | null;
   protocols: Protocol[];
+  solanaMetrics: TrackallSolanaPlatformMetricsResponse | null;
+  solanaMetricsError: string | null;
+  solanaMetricsStatus: "idle" | "loading" | "ready" | "error";
   requestedId: string | null;
   onBack: () => void;
   onOpenProtocol: (protocol: Protocol) => void;
@@ -87,18 +95,46 @@ type WalletSortKey =
   | "pnl"
   | "lastActiveHours";
 type SortDirection = "asc" | "desc";
-type ChartRange = "7d" | "14d" | "30d";
-type ChartMetric = "tvl" | "volume" | "tps";
+type ChartRange = "24h" | "7d" | "30d";
+type ChartMetric = "tvl" | "volume" | "users" | "tps" | "transactions";
+type DisplayMetricKey = NetworkMetricKey | "transactions";
+type DisplayNetworkDetailMetric = Omit<NetworkDetailMetric, "changes" | "key" | "value"> & {
+  key: DisplayMetricKey;
+  value: number | null;
+  changes: {
+    h24: number | null;
+    d7: number | null;
+    d30: number | null;
+  };
+};
+type DisplayNetworkChartPoint = {
+  label: string;
+  timestamp?: string;
+  transactions?: number | null;
+  tps?: number | null;
+  tvl?: number | null;
+  users?: number | null;
+  volume?: number | null;
+};
+type DisplayNetworkDetail = {
+  metrics: DisplayNetworkDetailMetric[];
+  chart: DisplayNetworkChartPoint[];
+  topProtocols: NetworkProtocolRow[];
+  wallets: ProtocolUserRow[];
+  recentBlocks: NetworkBlockRow[];
+};
+type SolanaWalletSortKey = "rank" | "totalUsd" | "positionCount" | "protocolCount" | "capturedAt";
 
-const PRIMARY_KEYS: NetworkMetricKey[] = ["tvl", "volume", "users", "tps"];
+const PRIMARY_KEYS: DisplayMetricKey[] = ["tvl", "volume", "users", "tps"];
 const SECONDARY_KEYS: NetworkMetricKey[] = ["blockTime", "gas", "validators", "stakeRatio"];
-const CHART_RANGES: { key: ChartRange; label: string; size: number }[] = [
-  { key: "7d", label: "7D", size: 7 },
-  { key: "14d", label: "14D", size: 14 },
-  { key: "30d", label: "30D", size: 30 },
+const CHART_RANGES: { key: ChartRange; label: string; durationMs: number }[] = [
+  { key: "24h", label: "24H", durationMs: 24 * 60 * 60 * 1000 },
+  { key: "7d", label: "7D", durationMs: 7 * 24 * 60 * 60 * 1000 },
+  { key: "30d", label: "30D", durationMs: 30 * 24 * 60 * 60 * 1000 },
 ];
 
-function formatMetric(metric: NetworkDetailMetric) {
+function formatMetric(metric: DisplayNetworkDetailMetric) {
+  if (metric.value == null) return "—";
   switch (metric.format) {
     case "usd":
       return formatUsd(metric.value);
@@ -115,11 +151,12 @@ function formatMetric(metric: NetworkDetailMetric) {
   }
 }
 
-function metricIcon(key: NetworkMetricKey) {
+function metricIcon(key: DisplayMetricKey) {
   if (key === "tvl") return <WalletIcon className="size-4" />;
   if (key === "volume") return <ActivityIcon className="size-4" />;
   if (key === "users") return <UsersIcon className="size-4" />;
   if (key === "tps") return <GaugeIcon className="size-4" />;
+  if (key === "transactions") return <ActivityIcon className="size-4" />;
   if (key === "blockTime") return <TimerIcon className="size-4" />;
   if (key === "gas") return <FuelIcon className="size-4" />;
   if (key === "validators") return <ShieldCheckIcon className="size-4" />;
@@ -128,18 +165,28 @@ function metricIcon(key: NetworkMetricKey) {
 
 function chartLabel(metric: ChartMetric) {
   if (metric === "tvl") return "Total value locked";
-  if (metric === "volume") return "Network volume";
+  if (metric === "volume") return "24h volume";
+  if (metric === "users") return "Active users";
+  if (metric === "transactions") return "Indexed transactions";
   return "Throughput (TPS)";
 }
 
-function chartValue(metric: ChartMetric, value: number) {
+function chartValue(metric: ChartMetric, value: number | null) {
+  if (value == null) return "—";
   if (metric === "tps") return `${formatTps(value)} TPS`;
+  if (metric === "users" || metric === "transactions") return formatNumber(value);
   return formatUsd(value);
 }
 
 function axisValue(metric: ChartMetric, value: number) {
   if (metric === "tps") return formatTps(Number(value));
+  if (metric === "users" || metric === "transactions") return formatNumber(Number(value));
   return formatUsd(Number(value)).replace(".00", "");
+}
+
+function getChartMetricValue(point: DisplayNetworkChartPoint, metric: ChartMetric) {
+  const value = point[metric];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function flowClass(value: number) {
@@ -178,7 +225,21 @@ function sortWallets(rows: ProtocolUserRow[], key: WalletSortKey, direction: Sor
   });
 }
 
-function DeltaPill({ value, size = "md" }: { value: number; size?: "sm" | "md" }) {
+function DeltaPill({ value, size = "md" }: { value: number | null; size?: "sm" | "md" }) {
+  if (value == null) {
+    const compact = size === "sm";
+    return (
+      <span
+        className={
+          "inline-flex items-center rounded bg-muted/45 font-mono text-muted-foreground " +
+          (compact ? "h-4 px-1.5 text-[10px] leading-none" : "px-1.5 py-0.5 text-[10px]")
+        }
+      >
+        —
+      </span>
+    );
+  }
+
   const positive = value >= 0;
   const compact = size === "sm";
   const sizing = compact
@@ -291,15 +352,17 @@ function StatCard({
   metric,
   chart,
 }: {
-  metric: NetworkDetailMetric;
-  chart: NetworkChartPoint[];
+  metric: DisplayNetworkDetailMetric;
+  chart: DisplayNetworkChartPoint[];
 }) {
-  const positive = metric.changes.h24 >= 0;
-  const sparkKey: keyof NetworkChartPoint =
+  const positive = (metric.changes.h24 ?? 0) >= 0;
+  const sparkKey: keyof DisplayNetworkChartPoint =
     metric.key === "volume"
       ? "volume"
       : metric.key === "users" || metric.key === "validators"
         ? "users"
+        : metric.key === "transactions"
+          ? "transactions"
         : metric.key === "tps"
           ? "tps"
           : "tvl";
@@ -319,7 +382,7 @@ function StatCard({
         <span className="text-xs text-muted-foreground">vs prev 24h</span>
       </div>
       <Sparkline
-        values={chart.slice(-14).map((point) => point[sparkKey] as number)}
+        values={chart.slice(-14).map((point) => Number(point[sparkKey])).filter(Number.isFinite)}
         positive={positive}
         className="mt-3 h-10 w-full"
       />
@@ -327,7 +390,7 @@ function StatCard({
   );
 }
 
-function MiniMetric({ metric }: { metric: NetworkDetailMetric }) {
+function MiniMetric({ metric }: { metric: DisplayNetworkDetailMetric }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/60 bg-background/40 text-muted-foreground">
@@ -351,19 +414,23 @@ function ActivityChartCard({
   range,
   points,
   topProtocols,
+  metricOptions,
+  splitByTopProtocols = true,
   onMetricChange,
   onRangeChange,
 }: {
   metric: ChartMetric;
   range: ChartRange;
-  points: NetworkChartPoint[];
+  points: DisplayNetworkChartPoint[];
   topProtocols: NetworkProtocolRow[];
+  metricOptions: ChartMetric[];
+  splitByTopProtocols?: boolean;
   onMetricChange: (next: ChartMetric) => void;
   onRangeChange: (next: ChartRange) => void;
 }) {
   const gradientId = useId().replace(/:/g, "");
   const series = useMemo(() => {
-    const sourceRows = topProtocols.length > 0 ? topProtocols.slice(0, 4) : [];
+    const sourceRows = splitByTopProtocols && topProtocols.length > 0 ? topProtocols.slice(0, 4) : [];
     const names =
       sourceRows.length > 0
         ? sourceRows.map((row) => row.protocol.name)
@@ -376,26 +443,41 @@ function ActivityChartCard({
       name,
       weight: weights[index]! / total,
     }));
-  }, [topProtocols]);
+  }, [splitByTopProtocols, topProtocols]);
   const today = useMemo(() => new Date(), []);
+  const metricPoints = useMemo(
+    () => points.filter((point) => getChartMetricValue(point, metric) != null),
+    [metric, points],
+  );
+  const showTimeLabels = useMemo(() => {
+    const dayCounts = new Map<string, number>();
+    for (const point of metricPoints) {
+      if (!point.timestamp) continue;
+      const day = new Date(point.timestamp).toISOString().slice(0, 10);
+      dayCounts.set(day, (dayCounts.get(day) ?? 0) + 1);
+    }
+    return [...dayCounts.values()].some((count) => count > 1);
+  }, [metricPoints]);
   const chartData = useMemo(
     () =>
-      points.map((point) => {
+      metricPoints.map((point) => {
         const daysAgo = parseInt(point.label.replace("D-", ""), 10);
         const date = new Date(today);
         date.setDate(today.getDate() - daysAgo);
-        const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        const label = point.timestamp
+          ? formatChartTimestamp(point.timestamp, showTimeLabels)
+          : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
         const row: Record<string, number | string> = { label };
-        const total = point[metric];
+        const total = getChartMetricValue(point, metric) ?? 0;
         for (const item of series) row[item.key] = total * item.weight;
         return row;
       }),
-    [metric, points, series, today],
+    [metric, metricPoints, series, showTimeLabels, today],
   );
-  const tickInterval = Math.max(0, Math.floor(points.length / 6) - 1);
-  const latest = points.at(-1)?.[metric] ?? 0;
-  const first = points.at(0)?.[metric] ?? latest;
-  const delta = first === 0 ? 0 : ((latest - first) / first) * 100;
+  const tickInterval = Math.max(0, Math.floor(metricPoints.length / 6) - 1);
+  const latest = getChartMetricValue(metricPoints.at(-1) ?? { label: "" }, metric);
+  const first = getChartMetricValue(metricPoints.at(0) ?? { label: "" }, metric);
+  const delta = first == null || first === 0 || latest == null ? null : ((latest - first) / first) * 100;
 
   return (
     <section className="rounded-xl border border-border/60 bg-background/40 p-5">
@@ -417,9 +499,19 @@ function ActivityChartCard({
             onValueChange={(value) => onMetricChange(value as ChartMetric)}
           >
             <TabsList aria-label="Chart metric">
-              <TabsTab value="tvl">TVL</TabsTab>
-              <TabsTab value="volume">Volume</TabsTab>
-              <TabsTab value="tps">TPS</TabsTab>
+              {metricOptions.map((option) => (
+                <TabsTab key={option} value={option}>
+                  {option === "tvl"
+                    ? "TVL"
+                    : option === "volume"
+                      ? "Volume"
+                      : option === "users"
+                        ? "Users"
+                        : option === "transactions"
+                          ? "Txns"
+                          : "TPS"}
+                </TabsTab>
+              ))}
             </TabsList>
           </Tabs>
           <Tabs
@@ -481,6 +573,8 @@ function ActivityChartCard({
               stroke={item.color}
               strokeWidth={1.5}
               fill={`url(#${gradientId}-${item.key})`}
+              animationDuration={250}
+              animationEasing="ease-out"
             />
           ))}
         </AreaChart>
@@ -529,9 +623,11 @@ function ShareBar({ value }: { value: number }) {
 
 function TopProtocolsTable({
   rows,
+  volumeLabel = "30d Volume",
   onOpenProtocol,
 }: {
   rows: NetworkProtocolRow[];
+  volumeLabel?: string;
   onOpenProtocol: (protocol: Protocol) => void;
 }) {
   if (rows.length === 0) {
@@ -557,7 +653,7 @@ function TopProtocolsTable({
           <TableRow>
             <TableHead className="text-xs font-medium text-muted-foreground">Protocol</TableHead>
             <TableHead className="text-right text-xs font-medium text-muted-foreground">TVL</TableHead>
-            <TableHead className="text-right text-xs font-medium text-muted-foreground">30d Volume</TableHead>
+            <TableHead className="text-right text-xs font-medium text-muted-foreground">{volumeLabel}</TableHead>
             <TableHead className="text-xs font-medium text-muted-foreground">Network share</TableHead>
             <TableHead className="text-right text-xs font-medium text-muted-foreground">24h</TableHead>
             <TableHead className="w-10" />
@@ -737,16 +833,602 @@ function SortableHead({
   );
 }
 
+function percentChange(current: number | null, previous: number | null) {
+  if (current == null || previous == null || previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function seriesChange(points: Array<{ timestamp: string; value: number | null }>, days: number) {
+  const latest = points.at(-1);
+  if (!latest || latest.value == null) return null;
+  const cutoff = Date.parse(latest.timestamp) - days * 24 * 60 * 60 * 1000;
+  const previous =
+    [...points].reverse().find((point) => point.value != null && Date.parse(point.timestamp) <= cutoff) ??
+    points.find((point) => point.value != null);
+  return percentChange(latest.value, previous?.value ?? null);
+}
+
+function latestPlotValue(points: Array<{ activeUsers?: number | null; timestamp: string }>) {
+  for (const point of [...points].reverse()) {
+    if (point.activeUsers != null) return point.activeUsers;
+  }
+  return null;
+}
+
+function chartPointLabel(timestamp: string) {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", { day: "numeric", month: "short" });
+}
+
+function formatChartTimestamp(timestamp: string, includeTime: boolean) {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    hour: includeTime ? "numeric" : undefined,
+    month: "short",
+  });
+}
+
+function buildSolanaTransactionPlot(metrics: TrackallSolanaPlatformMetricsResponse | null) {
+  const countsByTimestamp = new Map<string, number>();
+  for (const platform of metrics?.platforms ?? []) {
+    for (const point of platform.transactionsPlot) {
+      if (point.transactionCount == null) continue;
+      countsByTimestamp.set(point.timestamp, (countsByTimestamp.get(point.timestamp) ?? 0) + point.transactionCount);
+    }
+  }
+  return [...countsByTimestamp.entries()]
+    .sort(([a], [b]) => Date.parse(a) - Date.parse(b))
+    .map(([timestamp, transactionCount]) => ({ timestamp, transactionCount }));
+}
+
+function buildSolanaChart(
+  metrics: TrackallSolanaPlatformMetricsResponse | null,
+  transactionPlot: { timestamp: string; transactionCount: number }[],
+): DisplayNetworkChartPoint[] {
+  const pointsByTimestamp = new Map<string, DisplayNetworkChartPoint>();
+  const ensurePoint = (timestamp: string) => {
+    let point = pointsByTimestamp.get(timestamp);
+    if (!point) {
+      point = {
+        label: chartPointLabel(timestamp),
+        timestamp,
+      };
+      pointsByTimestamp.set(timestamp, point);
+    }
+    return point;
+  };
+
+  for (const point of metrics?.chain.plot ?? []) {
+    const chartPoint = ensurePoint(point.timestamp);
+    chartPoint.tvl = point.tvlUsd;
+    chartPoint.volume = point.volume24hUsd;
+  }
+
+  for (const point of metrics?.chain.usersPlot ?? []) {
+    ensurePoint(point.timestamp).users = point.activeUsers;
+  }
+
+  for (const point of transactionPlot) {
+    ensurePoint(point.timestamp).transactions = point.transactionCount;
+  }
+
+  const sorted = [...pointsByTimestamp.values()].sort(
+    (a, b) => Date.parse(a.timestamp ?? "") - Date.parse(b.timestamp ?? ""),
+  );
+
+  let lastTvl: number | null = null;
+  let lastVolume: number | null = null;
+  let lastUsers: number | null = null;
+  for (const point of sorted) {
+    if (point.tvl != null) lastTvl = point.tvl;
+    else if (lastTvl != null) point.tvl = lastTvl;
+    if (point.volume != null) lastVolume = point.volume;
+    else if (lastVolume != null) point.volume = lastVolume;
+    if (point.users != null) lastUsers = point.users;
+    else if (lastUsers != null) point.users = lastUsers;
+  }
+  let nextTvl: number | null = null;
+  let nextVolume: number | null = null;
+  let nextUsers: number | null = null;
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const point = sorted[index]!;
+    if (point.tvl != null) nextTvl = point.tvl;
+    else if (nextTvl != null) point.tvl = nextTvl;
+    if (point.volume != null) nextVolume = point.volume;
+    else if (nextVolume != null) point.volume = nextVolume;
+    if (point.users != null) nextUsers = point.users;
+    else if (nextUsers != null) point.users = nextUsers;
+  }
+
+  return sorted;
+}
+
+function buildSolanaTopProtocols(
+  metrics: TrackallSolanaPlatformMetricsResponse | null,
+  protocols: Protocol[],
+): NetworkProtocolRow[] {
+  const protocolsById = new Map(protocols.map((protocol) => [protocol.id, protocol]));
+  const rows = (metrics?.platforms ?? [])
+    .map((platform) => {
+      const protocol = protocolsById.get(platform.platformId);
+      if (!protocol) return null;
+      return {
+        change24h: platform.tvlChange24hPct ?? 0,
+        netFlow: 0,
+        protocol,
+        share: 0,
+        tvl: platform.tvlUsd ?? 0,
+        volume30d: platform.volume24hUsd ?? 0,
+      } satisfies NetworkProtocolRow;
+    })
+    .filter((row): row is NetworkProtocolRow => row !== null)
+    .sort((a, b) => b.tvl - a.tvl);
+
+  const totalTvl = rows.reduce((sum, row) => sum + row.tvl, 0);
+  for (const row of rows) {
+    row.share = totalTvl === 0 ? 0 : (row.tvl / totalTvl) * 100;
+  }
+  return rows;
+}
+
+function buildSolanaNetworkDetail(
+  metrics: TrackallSolanaPlatformMetricsResponse | null,
+  protocols: Protocol[],
+  recentBlocks: NetworkBlockRow[],
+): DisplayNetworkDetail {
+  const transactionPlot = buildSolanaTransactionPlot(metrics);
+  const chart = buildSolanaChart(metrics, transactionPlot);
+  const usersSeries = (metrics?.chain.usersPlot ?? []).map((point) => ({
+    timestamp: point.timestamp,
+    value: point.activeUsers,
+  }));
+  const transactionSeries = transactionPlot.map((point) => ({
+    timestamp: point.timestamp,
+    value: point.transactionCount,
+  }));
+  const transactionCount = (metrics?.platforms ?? []).reduce((sum, platform) => sum + (platform.transactionCount ?? 0), 0);
+
+  return {
+    chart,
+    metrics: [
+      {
+        changes: {
+          d7: seriesChange((metrics?.chain.plot ?? []).map((point) => ({ timestamp: point.timestamp, value: point.tvlUsd })), 7),
+          d30: seriesChange((metrics?.chain.plot ?? []).map((point) => ({ timestamp: point.timestamp, value: point.tvlUsd })), 30),
+          h24: metrics?.chain.tvlChange24hPct ?? null,
+        },
+        format: "usd",
+        key: "tvl",
+        label: "TVL",
+        value: metrics?.chain.tvlUsd ?? null,
+      },
+      {
+        changes: {
+          d7: seriesChange((metrics?.chain.plot ?? []).map((point) => ({ timestamp: point.timestamp, value: point.volume24hUsd })), 7),
+          d30: seriesChange((metrics?.chain.plot ?? []).map((point) => ({ timestamp: point.timestamp, value: point.volume24hUsd })), 30),
+          h24: metrics?.chain.volumeChange24hPct ?? null,
+        },
+        format: "usd",
+        key: "volume",
+        label: "24h Volume",
+        value: metrics?.chain.volume24hUsd ?? null,
+      },
+      {
+        changes: {
+          d7: seriesChange(usersSeries, 7),
+          d30: seriesChange(usersSeries, 30),
+          h24: seriesChange(usersSeries, 1),
+        },
+        format: "number",
+        key: "users",
+        label: "Active Users",
+        value: latestPlotValue(metrics?.chain.usersPlot ?? []),
+      },
+      {
+        changes: {
+          d7: seriesChange(transactionSeries, 7),
+          d30: seriesChange(transactionSeries, 30),
+          h24: seriesChange(transactionSeries, 1),
+        },
+        format: "number",
+        key: "transactions",
+        label: "Indexed Txns",
+        value: metrics == null ? null : transactionCount,
+      },
+    ],
+    recentBlocks,
+    topProtocols: buildSolanaTopProtocols(metrics, protocols),
+    wallets: [],
+  };
+}
+
+function formatCapturedAt(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return date.toLocaleString("en-US", {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+  });
+}
+
+function sortSolanaWallets(wallets: TrackallAggregateTopWallet[], key: SolanaWalletSortKey, direction: SortDirection) {
+  return [...wallets].sort((a, b) => {
+    const result =
+      key === "capturedAt"
+        ? Date.parse(a.capturedAt) - Date.parse(b.capturedAt)
+        : a[key] - b[key];
+    return direction === "asc" ? result : -result;
+  });
+}
+
+function exportSolanaWalletRows(wallets: TrackallAggregateTopWallet[], asOfRunId: number | null) {
+  const csvCell = (value: number | string | null) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const rows = [
+    ["rank", "address", "totalUsd", "positionCount", "protocolCount", "capturedAt", "asOfRunId"],
+    ...wallets.map((wallet) => [
+      String(wallet.rank),
+      wallet.address,
+      String(wallet.totalUsd),
+      String(wallet.positionCount),
+      String(wallet.protocolCount),
+      wallet.capturedAt,
+      asOfRunId == null ? "" : String(asOfRunId),
+    ]),
+  ];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "solana-top-wallets.csv";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function SolanaWalletsTable({ onOpenWallet }: { onOpenWallet: (address: string) => void }) {
+  const [wallets, setWallets] = useState<TrackallAggregateTopWallet[]>([]);
+  const [asOfRunId, setAsOfRunId] = useState<number | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SolanaWalletSortKey>("totalUsd");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(12);
+  const [selectedWallets, setSelectedWallets] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setStatus("loading");
+    setError(null);
+
+    fetchSolanaTopAggregatePortfolioWallets(
+      100,
+      {
+        apiKey: import.meta.env.VITE_TRACKALL_API_KEY,
+        baseUrl: import.meta.env.VITE_TRACKALL_API_URL,
+      },
+      controller.signal,
+    )
+      .then((result) => {
+        setWallets(result.wallets);
+        setAsOfRunId(result.asOfRunId);
+        setStatus("ready");
+      })
+      .catch((reason) => {
+        if (controller.signal.aborted) return;
+        console.error(reason);
+        setError(reason instanceof Error ? reason.message : "Unable to load top wallets");
+        setStatus("error");
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const filteredWallets = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return wallets;
+    return wallets.filter((wallet) =>
+      `${wallet.rank} ${wallet.address} ${wallet.protocols.map((protocol) => protocol.platformId).join(" ")}`.toLowerCase().includes(query),
+    );
+  }, [search, wallets]);
+  const sortedWallets = useMemo(
+    () => sortSolanaWallets(filteredWallets, sortKey, sortDirection),
+    [filteredWallets, sortDirection, sortKey],
+  );
+  const totalPages = Math.max(1, Math.ceil(sortedWallets.length / pageSize));
+  const safePage = Math.min(page, totalPages - 1);
+  const pagedWallets = sortedWallets.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const allOnPage = pagedWallets.length > 0 && pagedWallets.every((wallet) => selectedWallets.has(wallet.address));
+  const someOnPage = !allOnPage && pagedWallets.some((wallet) => selectedWallets.has(wallet.address));
+  const start = sortedWallets.length === 0 ? 0 : safePage * pageSize + 1;
+  const end = Math.min(sortedWallets.length, (safePage + 1) * pageSize);
+
+  const selectSort = (key: SolanaWalletSortKey) => {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection(key === "rank" ? "asc" : "desc");
+  };
+  const toggleWallet = (address: string) => {
+    setSelectedWallets((current) => {
+      const next = new Set(current);
+      if (next.has(address)) next.delete(address);
+      else next.add(address);
+      return next;
+    });
+  };
+  const togglePageSelection = () => {
+    setSelectedWallets((current) => {
+      const next = new Set(current);
+      for (const wallet of pagedWallets) {
+        if (allOnPage) next.delete(wallet.address);
+        else next.add(wallet.address);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <section className="rounded-xl border border-border/60 bg-background/40">
+      <header className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
+        <div>
+          <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
+            Top indexed portfolios
+          </div>
+          {asOfRunId != null ? (
+            <div className="mt-1 font-mono text-[10px] text-muted-foreground tabular-nums">
+              run #{asOfRunId}
+            </div>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          disabled={sortedWallets.length === 0}
+          onClick={() => exportSolanaWalletRows(sortedWallets, asOfRunId)}
+        >
+          <DownloadIcon />
+          Export
+        </Button>
+      </header>
+
+      <div className="border-b border-border/60 px-5 py-3">
+        <InputGroup className="sm:max-w-sm">
+          <InputGroupAddon>
+            <SearchIcon />
+          </InputGroupAddon>
+          <InputGroupInput
+            nativeInput
+            type="search"
+            value={search}
+            placeholder="Search wallets"
+            onChange={(event) => {
+              setSearch(event.currentTarget.value);
+              setPage(0);
+            }}
+          />
+        </InputGroup>
+      </div>
+
+      {status === "error" ? (
+        <div className="border-b border-border/60 px-5 py-3 text-sm text-rose-600 dark:text-rose-400">
+          {error ?? "Unable to load top wallets"}
+        </div>
+      ) : status === "loading" || status === "idle" ? (
+        <div className="border-b border-border/60 px-5 py-3 text-sm text-muted-foreground">
+          Loading top wallets...
+        </div>
+      ) : null}
+
+      <Table>
+        <TableHeader className="[&_tr]:border-border/60">
+          <TableRow>
+            <TableHead className="w-10">
+              <Checkbox
+                checked={allOnPage}
+                indeterminate={someOnPage}
+                onCheckedChange={togglePageSelection}
+                aria-label="Select all rows on this page"
+              />
+            </TableHead>
+            <SortableHead
+              active={sortKey === "rank"}
+              direction={sortDirection}
+              label="Wallet"
+              onClick={() => selectSort("rank")}
+            />
+            <SortableHead
+              active={sortKey === "totalUsd"}
+              align="right"
+              direction={sortDirection}
+              label="Portfolio value"
+              onClick={() => selectSort("totalUsd")}
+            />
+            <SortableHead
+              active={sortKey === "positionCount"}
+              align="right"
+              direction={sortDirection}
+              label="Positions"
+              onClick={() => selectSort("positionCount")}
+            />
+            <SortableHead
+              active={sortKey === "protocolCount"}
+              align="right"
+              direction={sortDirection}
+              label="Protocols"
+              onClick={() => selectSort("protocolCount")}
+            />
+            <SortableHead
+              active={sortKey === "capturedAt"}
+              align="right"
+              direction={sortDirection}
+              label="Captured"
+              onClick={() => selectSort("capturedAt")}
+            />
+          </TableRow>
+        </TableHeader>
+        <TableBody className="[&_tr]:border-border/60">
+          {pagedWallets.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
+                {status === "ready" ? "No wallets match these filters." : "No wallet data loaded yet."}
+              </TableCell>
+            </TableRow>
+          ) : (
+            pagedWallets.map((wallet) => {
+              const selected = selectedWallets.has(wallet.address);
+              return (
+                <TableRow key={wallet.address} data-state={selected ? "selected" : undefined}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selected}
+                      onCheckedChange={() => toggleWallet(wallet.address)}
+                      aria-label={`Select ${shortWallet(wallet.address)}`}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <Avatar className={"size-8 shrink-0 " + walletTone(wallet.address)}>
+                        <AvatarFallback className="bg-transparent font-mono text-[11px] leading-none font-medium [text-rendering:geometricPrecision]">
+                          {wallet.address.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline" className="h-4 px-1 font-mono text-[9px]">
+                            #{wallet.rank}
+                          </Badge>
+                          <a
+                            href={getPortfolioAddressPath(wallet.address)}
+                            onClick={(event) => {
+                              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                              event.preventDefault();
+                              onOpenWallet(wallet.address);
+                            }}
+                            className="wallet-address-link font-mono text-xs"
+                            aria-label={`Open ${shortWallet(wallet.address)} portfolio`}
+                          >
+                            {shortWallet(wallet.address)}
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => void navigator.clipboard?.writeText(wallet.address)}
+                            aria-label="Copy wallet"
+                            className="text-muted-foreground/60 transition-colors hover:text-foreground"
+                          >
+                            <CopyIcon className="size-3" />
+                          </button>
+                        </div>
+                        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                          {wallet.protocols.slice(0, 3).map((protocol) => protocol.platformId).join(", ") || "Solana"}
+                        </div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{formatUsd(wallet.totalUsd)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(wallet.positionCount)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(wallet.protocolCount)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {formatCapturedAt(wallet.capturedAt)}
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
+
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-5 py-3 text-xs">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <span className="font-mono tabular-nums">
+            {start}-{end} of {sortedWallets.length}
+          </span>
+          {selectedWallets.size > 0 ? (
+            <>
+              <span className="size-1 rounded-full bg-muted-foreground/40" />
+              <span className="font-mono tabular-nums">{selectedWallets.size} selected</span>
+              <Button type="button" variant="ghost" size="xs" onClick={() => setSelectedWallets(new Set())}>
+                Clear
+              </Button>
+            </>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <Select
+            value={String(pageSize)}
+            onValueChange={(value) => {
+              const next = Number(value);
+              if (PAGE_SIZE_OPTIONS.includes(next as (typeof PAGE_SIZE_OPTIONS)[number])) {
+                setPageSize(next as (typeof PAGE_SIZE_OPTIONS)[number]);
+                setPage(0);
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="w-28">
+              <SelectValue>{pageSize} rows</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size} rows
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            disabled={safePage === 0}
+            onClick={() => setPage((current) => Math.max(0, current - 1))}
+            aria-label="Previous page"
+          >
+            <ChevronLeftIcon />
+          </Button>
+          <span className="font-mono tabular-nums text-muted-foreground">
+            {safePage + 1} / {totalPages}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            disabled={safePage >= totalPages - 1}
+            onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
+            aria-label="Next page"
+          >
+            <ChevronRightIcon />
+          </Button>
+        </div>
+      </footer>
+    </section>
+  );
+}
+
 export function NetworkPage({
   network,
   protocols,
+  solanaMetrics,
+  solanaMetricsError,
+  solanaMetricsStatus,
   requestedId,
   onBack,
   onOpenProtocol,
   onOpenWallet,
 }: Props) {
   const [chartMetric, setChartMetric] = useState<ChartMetric>("tvl");
-  const [chartRange, setChartRange] = useState<ChartRange>("30d");
+  const [chartRange, setChartRange] = useState<ChartRange>("7d");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<ProtocolUserType | FilterValue>("all");
   const [riskFilter, setRiskFilter] = useState<ProtocolRiskTier | FilterValue>("all");
@@ -757,22 +1439,48 @@ export function NetworkPage({
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(12);
   const [selectedWallets, setSelectedWallets] = useState<Set<string>>(() => new Set());
 
-  const detail = useMemo(() => (network ? buildNetworkDetailMock(network, protocols) : null), [network, protocols]);
+  const mockDetail = useMemo(() => (network ? buildNetworkDetailMock(network, protocols) : null), [network, protocols]);
+  const isSolanaNetwork = network?.id === "solana";
+  const detail = useMemo<DisplayNetworkDetail | null>(() => {
+    if (!network || !mockDetail) return null;
+    if (isSolanaNetwork) {
+      return buildSolanaNetworkDetail(solanaMetrics, protocols, mockDetail.recentBlocks);
+    }
+    return mockDetail;
+  }, [isSolanaNetwork, mockDetail, network, protocols, solanaMetrics]);
+  const solanaChart = useMemo(
+    () => (isSolanaNetwork ? buildSolanaChart(solanaMetrics, buildSolanaTransactionPlot(solanaMetrics)) : null),
+    [isSolanaNetwork, solanaMetrics],
+  );
   const chartPoints = useMemo(() => {
-    if (!detail) return [];
-    const size = CHART_RANGES.find((entry) => entry.key === chartRange)?.size ?? 30;
-    return detail.chart.slice(-size);
-  }, [chartRange, detail]);
+    const source = isSolanaNetwork ? solanaChart : detail?.chart;
+    if (!source) return [];
+    const durationMs =
+      CHART_RANGES.find((entry) => entry.key === chartRange)?.durationMs ?? 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - durationMs;
+    const filtered = source.filter((point) => {
+      if (!point.timestamp) return false;
+      const time = Date.parse(point.timestamp);
+      return Number.isFinite(time) && time >= cutoff;
+    });
+    return filtered.length > 0 ? filtered : source.slice(-1);
+  }, [chartRange, detail?.chart, isSolanaNetwork, solanaChart]);
+  const chartMetricOptions = useMemo<ChartMetric[]>(
+    () => (isSolanaNetwork ? ["tvl", "volume", "users", "transactions"] : ["tvl", "volume", "tps"]),
+    [isSolanaNetwork],
+  );
+  const activeChartMetric = chartMetricOptions.includes(chartMetric) ? chartMetric : chartMetricOptions[0]!;
   const primaryMetrics = useMemo(() => {
     if (!detail) return [];
     const lookup = new Map(detail.metrics.map((metric) => [metric.key, metric]));
-    return PRIMARY_KEYS.map((key) => lookup.get(key)).filter(Boolean) as NetworkDetailMetric[];
-  }, [detail]);
+    const keys = isSolanaNetwork ? (["tvl", "volume", "users", "transactions"] as DisplayMetricKey[]) : PRIMARY_KEYS;
+    return keys.map((key) => lookup.get(key)).filter(Boolean) as DisplayNetworkDetailMetric[];
+  }, [detail, isSolanaNetwork]);
   const secondaryMetrics = useMemo(() => {
-    if (!detail) return [];
+    if (!detail || isSolanaNetwork) return [];
     const lookup = new Map(detail.metrics.map((metric) => [metric.key, metric]));
-    return SECONDARY_KEYS.map((key) => lookup.get(key)).filter(Boolean) as NetworkDetailMetric[];
-  }, [detail]);
+    return SECONDARY_KEYS.map((key) => lookup.get(key)).filter(Boolean) as DisplayNetworkDetailMetric[];
+  }, [detail, isSolanaNetwork]);
   const filteredWallets = useMemo(() => {
     if (!detail) return [];
     const query = search.trim().toLowerCase();
@@ -835,7 +1543,7 @@ export function NetworkPage({
       <header className="border-b border-border/60 px-6 py-3">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-            Network · Local mock
+            Network · {isSolanaNetwork ? "Trackall API" : "Local mock"}
           </div>
           {network.website ? (
             <Button
@@ -940,25 +1648,48 @@ export function NetworkPage({
           ))}
         </section>
 
-        <section className="grid grid-cols-2 divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-background/40 sm:grid-cols-4 sm:divide-x">
-          {secondaryMetrics.map((metric) => (
-            <MiniMetric key={metric.key} metric={metric} />
-          ))}
-        </section>
+        {isSolanaNetwork && solanaMetricsStatus === "error" ? (
+          <section className="rounded-xl border border-rose-500/30 bg-rose-500/8 px-5 py-3 text-sm text-rose-600 dark:text-rose-400">
+            {solanaMetricsError ?? "Unable to load Trackall Solana metrics"}
+          </section>
+        ) : null}
+
+        {isSolanaNetwork && (solanaMetricsStatus === "loading" || solanaMetricsStatus === "idle") ? (
+          <section className="rounded-xl border border-border/60 bg-background/40 px-5 py-3 text-sm text-muted-foreground">
+            Loading Solana network metrics...
+          </section>
+        ) : null}
+
+        {secondaryMetrics.length > 0 ? (
+          <section className="grid grid-cols-2 divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-background/40 sm:grid-cols-4 sm:divide-x">
+            {secondaryMetrics.map((metric) => (
+              <MiniMetric key={metric.key} metric={metric} />
+            ))}
+          </section>
+        ) : null}
 
         <ActivityChartCard
-          metric={chartMetric}
+          metric={activeChartMetric}
           range={chartRange}
           points={chartPoints}
           topProtocols={detail.topProtocols}
+          metricOptions={chartMetricOptions}
+          splitByTopProtocols={!isSolanaNetwork}
           onMetricChange={setChartMetric}
           onRangeChange={setChartRange}
         />
 
         <RecentBlocksStrip blocks={detail.recentBlocks} />
 
-        <TopProtocolsTable rows={detail.topProtocols} onOpenProtocol={onOpenProtocol} />
+        <TopProtocolsTable
+          rows={detail.topProtocols}
+          volumeLabel={isSolanaNetwork ? "24h Volume" : "30d Volume"}
+          onOpenProtocol={onOpenProtocol}
+        />
 
+        {isSolanaNetwork ? (
+          <SolanaWalletsTable onOpenWallet={onOpenWallet} />
+        ) : (
         <section className="rounded-xl border border-border/60 bg-background/40">
           <header className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
             <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
@@ -1215,6 +1946,7 @@ export function NetworkPage({
             </div>
           </footer>
         </section>
+        )}
       </main>
     </div>
   );
