@@ -10,7 +10,6 @@ import {
   ChevronRightIcon,
   ChevronsUpDownIcon,
   CopyIcon,
-  DatabaseIcon,
   DownloadIcon,
   ExternalLinkIcon,
   SearchIcon,
@@ -32,7 +31,6 @@ import { getPortfolioAddressPath } from "@/lib/protocol-route";
 import { formatProtocolLocation } from "@/lib/protocols";
 import {
   fetchSolanaTopPortfolioWallets,
-  type TrackallSolanaPlatformMetricPlotPoint,
   type TrackallSolanaPlatformMetrics,
   type TrackallTopWallet,
 } from "@/lib/trackall-api";
@@ -59,13 +57,15 @@ type Props = {
 type WalletSortKey = "rank" | "totalUsd" | "positionCount" | "capturedAt";
 type SortDirection = "asc" | "desc";
 type ChartRange = "7d" | "14d" | "30d";
-type ProtocolMetricKey = "tvl" | "volume";
-type ProtocolMetricCardKey = ProtocolMetricKey | "users" | "programs";
+type ProtocolMetricKey = "tvl" | "volume" | "users" | "transactions";
+type ProtocolMetricCardKey = ProtocolMetricKey;
 type ProtocolChartPoint = {
   label: string;
   timestamp: string;
   tvl: number | null;
   volume: number | null;
+  users: number | null;
+  transactions: number | null;
 };
 type ProtocolDetailMetric = {
   key: ProtocolMetricCardKey;
@@ -85,7 +85,8 @@ type WalletsState = {
   wallets: TrackallTopWallet[];
 };
 
-const METRIC_KEYS = ["tvl", "volume", "users", "programs"] as const;
+const METRIC_KEYS = ["tvl", "volume", "users", "transactions"] as const;
+const CHART_METRIC_KEYS: ProtocolMetricKey[] = ["tvl", "volume", "users", "transactions"];
 const CHART_RANGES: { key: ChartRange; label: string; size: number }[] = [
   { key: "7d", label: "7D", size: 7 },
   { key: "14d", label: "14D", size: 14 },
@@ -113,20 +114,73 @@ function metricIcon(key: ProtocolMetricCardKey) {
   if (key === "tvl") return <WalletIcon className="size-4" />;
   if (key === "volume") return <ActivityIcon className="size-4" />;
   if (key === "users") return <UsersIcon className="size-4" />;
-  return <DatabaseIcon className="size-4" />;
+  return <ActivityIcon className="size-4" />;
 }
 
 function chartLabel(metric: ProtocolMetricKey) {
   if (metric === "tvl") return "Total value locked";
-  return "Protocol volume";
+  if (metric === "volume") return "Protocol volume";
+  if (metric === "users") return "Active users";
+  return "Transactions";
 }
 
-function chartValue(value: number | null) {
-  return value == null ? "—" : formatUsd(value);
+function chartValue(metric: ProtocolMetricKey, value: number | null) {
+  if (value == null) return "—";
+  return metric === "users" || metric === "transactions" ? formatNumber(value) : formatUsd(value);
 }
 
-function axisValue(value: number) {
-  return formatUsd(value).replace(".00", "");
+function axisValue(metric: ProtocolMetricKey, value: number) {
+  return metric === "users" || metric === "transactions" ? formatNumber(value) : formatUsd(value).replace(".00", "");
+}
+
+function chartColor(metric: ProtocolMetricKey) {
+  if (metric === "tvl") return Chart.chartColor(0);
+  if (metric === "volume") return Chart.chartColor(1);
+  if (metric === "users") return Chart.chartColor(2);
+  return Chart.chartColor(3);
+}
+
+function chartName(metric: ProtocolMetricKey) {
+  if (metric === "tvl") return "TVL";
+  if (metric === "volume") return "24h Volume";
+  if (metric === "users") return "Active Users";
+  return "Transactions";
+}
+
+function chartTabLabel(metric: ProtocolMetricKey) {
+  if (metric === "tvl") return "TVL";
+  if (metric === "volume") return "Volume";
+  if (metric === "users") return "Users";
+  return "Transactions";
+}
+
+function shouldShowMetricCard(metric: ProtocolDetailMetric) {
+  if (metric.key === "tvl" || metric.key === "volume") return metric.value != null;
+  if (metric.key === "users") return metric.value != null && metric.value > 0;
+  return true;
+}
+
+function metricGridClassName(count: number) {
+  if (count <= 1) return "grid grid-cols-1 gap-3";
+  if (count === 2) return "grid grid-cols-1 gap-3 sm:grid-cols-2";
+  if (count === 3) return "grid grid-cols-1 gap-3 sm:grid-cols-3";
+  return "grid grid-cols-2 gap-3 lg:grid-cols-4";
+}
+
+function hasChartMetricPoints(detail: ProtocolDetail, metric: ProtocolMetricKey) {
+  return detail.chart.some((point) => point[metric] != null);
+}
+
+function isChartMetricAvailable(detail: ProtocolDetail, metric: ProtocolMetricKey) {
+  if (metric === "tvl" || metric === "volume") {
+    const currentValue = detail.metrics.find((entry) => entry.key === metric)?.value ?? null;
+    return currentValue != null || hasChartMetricPoints(detail, metric);
+  }
+  if (metric === "users") {
+    const currentValue = detail.metrics.find((entry) => entry.key === metric)?.value ?? null;
+    return (currentValue != null && currentValue > 0) || detail.chart.some((point) => (point.users ?? 0) > 0);
+  }
+  return true;
 }
 
 const WALLET_TONES = [
@@ -210,22 +264,54 @@ function exportWalletRows(protocol: Protocol, wallets: TrackallTopWallet[], asOf
   URL.revokeObjectURL(url);
 }
 
-function chartPointLabel(point: TrackallSolanaPlatformMetricPlotPoint) {
-  const date = new Date(point.timestamp);
+function chartPointLabel(timestamp: string) {
+  const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return "—";
+  if (date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0) {
+    return date.toLocaleDateString("en-US", { day: "numeric", hour: "numeric", month: "short" });
+  }
   return date.toLocaleDateString("en-US", { day: "numeric", month: "short" });
 }
 
-function buildProtocolDetail(protocol: Protocol, metrics: TrackallSolanaPlatformMetrics | null): ProtocolDetail {
-  const plot = metrics?.plot ?? [];
+function buildProtocolChart(metrics: TrackallSolanaPlatformMetrics | null): ProtocolChartPoint[] {
+  const pointsByTimestamp = new Map<string, ProtocolChartPoint>();
 
+  function ensurePoint(timestamp: string) {
+    let point = pointsByTimestamp.get(timestamp);
+    if (!point) {
+      point = {
+        label: chartPointLabel(timestamp),
+        timestamp,
+        tvl: null,
+        volume: null,
+        users: null,
+        transactions: null,
+      };
+      pointsByTimestamp.set(timestamp, point);
+    }
+    return point;
+  }
+
+  for (const point of metrics?.plot ?? []) {
+    const chartPoint = ensurePoint(point.timestamp);
+    chartPoint.tvl = point.tvlUsd;
+    chartPoint.volume = point.volume24hUsd;
+  }
+
+  for (const point of metrics?.transactionsPlot ?? []) {
+    ensurePoint(point.timestamp).transactions = point.transactionCount;
+  }
+
+  for (const point of metrics?.usersPlot ?? []) {
+    ensurePoint(point.timestamp).users = point.activeUsers;
+  }
+
+  return Array.from(pointsByTimestamp.values()).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+}
+
+function buildProtocolDetail(protocol: Protocol, metrics: TrackallSolanaPlatformMetrics | null): ProtocolDetail {
   return {
-    chart: plot.map((point) => ({
-      label: chartPointLabel(point),
-      timestamp: point.timestamp,
-      tvl: point.tvlUsd,
-      volume: point.volume24hUsd,
-    })),
+    chart: buildProtocolChart(metrics),
     metrics: [
       {
         key: "tvl",
@@ -249,9 +335,9 @@ function buildProtocolDetail(protocol: Protocol, metrics: TrackallSolanaPlatform
         change24h: null,
       },
       {
-        key: "programs",
-        label: "Indexed Programs",
-        value: protocol.programIds?.length ?? null,
+        key: "transactions",
+        label: "Transactions",
+        value: metrics?.transactionCount ?? null,
         format: "number",
         change24h: null,
       },
@@ -368,14 +454,10 @@ function NotFound({ requestedId, onBack }: Pick<Props, "requestedId" | "onBack">
 
 function StatCard({ metric, chart }: { metric: ProtocolDetailMetric; chart: ProtocolChartPoint[] }) {
   const positive = (metric.change24h ?? 0) >= 0;
-  const sparkKey: ProtocolMetricKey = metric.key === "volume" ? "volume" : "tvl";
-  const sparkValues =
-    metric.key === "tvl" || metric.key === "volume"
-      ? chart
-          .slice(-14)
-          .map((point) => point[sparkKey])
-          .filter((value): value is number => value != null)
-      : [];
+  const sparkValues = chart
+    .map((point) => point[metric.key])
+    .filter((value): value is number => value != null)
+    .slice(-14);
   return (
     <div className="rounded-xl border border-border/60 bg-background/40 p-4">
       <div className="flex items-center justify-between">
@@ -405,12 +487,14 @@ function StatCard({ metric, chart }: { metric: ProtocolDetailMetric; chart: Prot
 }
 
 function ActivityChartCard({
+  availableMetrics,
   metric,
   range,
   points,
   onMetricChange,
   onRangeChange,
 }: {
+  availableMetrics: ProtocolMetricKey[];
   metric: ProtocolMetricKey;
   range: ChartRange;
   points: ProtocolChartPoint[];
@@ -431,7 +515,7 @@ function ActivityChartCard({
   const latest = values.at(-1) ?? null;
   const first = values.at(0) ?? latest;
   const delta = latest == null || first == null || first === 0 ? null : ((latest - first) / first) * 100;
-  const color = Chart.chartColor(metric === "tvl" ? 0 : 1);
+  const color = chartColor(metric);
 
   return (
     <section className="rounded-xl border border-border/60 bg-background/40 p-5">
@@ -442,7 +526,7 @@ function ActivityChartCard({
           </div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="font-heading text-2xl tracking-tight tabular-nums">
-              {chartValue(latest)}
+              {chartValue(metric, latest)}
             </span>
             <DeltaPill value={delta} />
           </div>
@@ -453,8 +537,11 @@ function ActivityChartCard({
             onValueChange={(value) => onMetricChange(value as ProtocolMetricKey)}
           >
             <TabsList aria-label="Chart metric">
-              <TabsTab value="tvl">TVL</TabsTab>
-              <TabsTab value="volume">Volume</TabsTab>
+              {availableMetrics.map((entry) => (
+                <TabsTab key={entry} value={entry}>
+                  {chartTabLabel(entry)}
+                </TabsTab>
+              ))}
             </TabsList>
           </Tabs>
           <Tabs
@@ -493,13 +580,13 @@ function ActivityChartCard({
             <Chart.ChartAxis
               axis="y"
               width={56}
-              tickFormatter={(value) => axisValue(Number(value))}
+              tickFormatter={(value) => axisValue(metric, Number(value))}
             />
             <Chart.ChartTooltip />
             <Area
               type="monotone"
               dataKey="value"
-              name={metric === "tvl" ? "TVL" : "24h Volume"}
+              name={chartName(metric)}
               stroke={color}
               strokeWidth={1.5}
               fill={`url(#${gradientId})`}
@@ -626,16 +713,27 @@ export function ProtocolPage({
   }, [protocol?.id]);
 
   const detail = useMemo(() => (protocol ? buildProtocolDetail(protocol, metrics) : null), [metrics, protocol]);
+  const availableChartMetrics = useMemo(() => {
+    if (!detail) return [];
+    return CHART_METRIC_KEYS.filter((metric) => isChartMetricAvailable(detail, metric));
+  }, [detail]);
   const chartPoints = useMemo(() => {
     if (!detail) return [];
     const size = CHART_RANGES.find((entry) => entry.key === chartRange)?.size ?? 30;
-    return detail.chart.slice(-size);
-  }, [chartRange, detail]);
+    return detail.chart.filter((point) => point[chartMetric] != null).slice(-size);
+  }, [chartMetric, chartRange, detail]);
   const visibleMetrics = useMemo(() => {
     if (!detail) return [];
     const lookup = new Map(detail.metrics.map((metric) => [metric.key, metric]));
-    return METRIC_KEYS.map((key) => lookup.get(key)).filter(Boolean) as ProtocolDetailMetric[];
+    return METRIC_KEYS.map((key) => lookup.get(key))
+      .filter((metric): metric is ProtocolDetailMetric => Boolean(metric))
+      .filter(shouldShowMetricCard);
   }, [detail]);
+
+  useEffect(() => {
+    if (!detail || availableChartMetrics.includes(chartMetric)) return;
+    setChartMetric(availableChartMetrics[0] ?? "users");
+  }, [availableChartMetrics, chartMetric, detail]);
   const filteredWallets = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return walletsState.wallets;
@@ -730,7 +828,7 @@ export function ProtocolPage({
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
                 {protocol.description}
               </p>
-              {(protocol.activeUsers != null && protocol.activeUsers > 0) || protocol.programIds ? (
+              {(protocol.activeUsers != null && protocol.activeUsers > 0) || metrics?.transactionCount != null ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
                     <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
@@ -738,10 +836,12 @@ export function ProtocolPage({
                       {protocol.activeUsers.toLocaleString("en-US")} active users
                     </Badge>
                   ) : null}
-                  <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
-                    <DatabaseIcon className="size-3" />
-                    {(protocol.programIds?.length ?? 0).toLocaleString("en-US")} indexed programs
-                  </Badge>
+                  {metrics?.transactionCount != null ? (
+                    <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
+                      <ActivityIcon className="size-3" />
+                      {metrics.transactionCount.toLocaleString("en-US")} transactions
+                    </Badge>
+                  ) : null}
                 </div>
               ) : null}
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -809,13 +909,14 @@ export function ProtocolPage({
           </dl>
         </section>
 
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <section className={metricGridClassName(visibleMetrics.length)}>
           {visibleMetrics.map((metric) => (
             <StatCard key={metric.key} metric={metric} chart={detail.chart} />
           ))}
         </section>
 
         <ActivityChartCard
+          availableMetrics={availableChartMetrics}
           metric={chartMetric}
           range={chartRange}
           points={chartPoints}

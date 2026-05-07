@@ -119,6 +119,16 @@ export type TrackallSolanaPlatformMetricPlotPoint = {
   volume24hUsd: number | null;
 };
 
+export type TrackallSolanaPlatformTransactionsPlotPoint = {
+  timestamp: string;
+  transactionCount: number | null;
+};
+
+export type TrackallSolanaPlatformUsersPlotPoint = {
+  timestamp: string;
+  activeUsers: number | null;
+};
+
 export type TrackallSolanaChainMetrics = {
   capturedAt: string | null;
   chain: "Solana";
@@ -139,12 +149,15 @@ export type TrackallSolanaPlatformMetrics = {
   platformId: string;
   platformName: string;
   plot: TrackallSolanaPlatformMetricPlotPoint[];
+  transactionCount: number | null;
+  transactionsPlot: TrackallSolanaPlatformTransactionsPlotPoint[];
   tvlChange24hPct: number | null;
   tvlMatchStatus: "matched" | "missing";
   tvlPrevious24hUsd: number | null;
   tvlSlug: string | null;
   tvlUsd: number | null;
   updatedAt: string | null;
+  usersPlot: TrackallSolanaPlatformUsersPlotPoint[];
   volume24hUsd: number | null;
   volumeChange24hPct: number | null;
   volumeMatchStatus: "matched" | "missing";
@@ -735,6 +748,44 @@ function parsePlatformMetricPlot(value: unknown): TrackallSolanaPlatformMetricPl
     .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
 }
 
+function parsePlatformTransactionsPlotPoint(value: unknown): TrackallSolanaPlatformTransactionsPlotPoint | null {
+  if (!isRecord(value)) return null;
+  const timestamp = readString(value.timestamp);
+  if (!timestamp || !Number.isFinite(Date.parse(timestamp))) return null;
+
+  return {
+    timestamp: new Date(timestamp).toISOString(),
+    transactionCount: readNullableMetric(value.transactionCount),
+  };
+}
+
+function parsePlatformTransactionsPlot(value: unknown): TrackallSolanaPlatformTransactionsPlotPoint[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(parsePlatformTransactionsPlotPoint)
+    .filter((point): point is TrackallSolanaPlatformTransactionsPlotPoint => point !== null)
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+}
+
+function parsePlatformUsersPlotPoint(value: unknown): TrackallSolanaPlatformUsersPlotPoint | null {
+  if (!isRecord(value)) return null;
+  const timestamp = readString(value.timestamp);
+  if (!timestamp || !Number.isFinite(Date.parse(timestamp))) return null;
+
+  return {
+    timestamp: new Date(timestamp).toISOString(),
+    activeUsers: readNullableMetric(value.activeUsers),
+  };
+}
+
+function parsePlatformUsersPlot(value: unknown): TrackallSolanaPlatformUsersPlotPoint[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(parsePlatformUsersPlotPoint)
+    .filter((point): point is TrackallSolanaPlatformUsersPlotPoint => point !== null)
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+}
+
 function parseChainMetrics(value: unknown): TrackallSolanaChainMetrics | null {
   if (!isRecord(value) || value.chain !== "Solana") return null;
 
@@ -765,12 +816,15 @@ function parsePlatformMetrics(value: unknown): TrackallSolanaPlatformMetrics | n
     platformId,
     platformName,
     plot: parsePlatformMetricPlot(value.plot),
+    transactionCount: readNullableMetric(value.transactionCount),
+    transactionsPlot: parsePlatformTransactionsPlot(value.transactionsPlot),
     tvlChange24hPct: readNullableMetric(value.tvlChange24hPct),
     tvlMatchStatus: parseMetricMatchStatus(value.tvlMatchStatus),
     tvlPrevious24hUsd: readNullableMetric(value.tvlPrevious24hUsd),
     tvlSlug: readString(value.tvlSlug),
     tvlUsd: readNullableMetric(value.tvlUsd),
     updatedAt: readNullableIsoString(value.updatedAt),
+    usersPlot: parsePlatformUsersPlot(value.usersPlot),
     volume24hUsd: readNullableMetric(value.volume24hUsd),
     volumeChange24hPct: readNullableMetric(value.volumeChange24hPct),
     volumeMatchStatus: parseMetricMatchStatus(value.volumeMatchStatus),

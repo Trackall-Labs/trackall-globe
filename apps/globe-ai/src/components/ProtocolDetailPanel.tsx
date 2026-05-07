@@ -1,7 +1,7 @@
 import {
+  ActivityIcon,
   ArrowDownRightIcon,
   ArrowUpRightIcon,
-  DatabaseIcon,
   ExternalLinkIcon,
   MapPinIcon,
   UsersIcon,
@@ -94,6 +94,13 @@ export function ProtocolDetailPanel({
   const delta = metrics?.tvlChange24hPct ?? null;
   const positive = (delta ?? 0) >= 0;
   const symbol = protocol.symbol?.trim();
+  const statCells = [
+    metrics?.tvlUsd != null ? { label: "TVL", value: optionalUsd(metrics.tvlUsd) } : null,
+    metrics?.volume24hUsd != null ? { label: "24h Vol", value: optionalUsd(metrics.volume24hUsd) } : null,
+    protocol.activeUsers != null && protocol.activeUsers > 0
+      ? { label: "Active users", value: optionalNumber(protocol.activeUsers) }
+      : null,
+  ].filter((cell): cell is { label: string; value: string } => cell !== null);
 
   return (
     <div
@@ -163,7 +170,7 @@ export function ProtocolDetailPanel({
         <span>{formatProtocolLocation(protocol)}</span>
       </div>
 
-      {(protocol.activeUsers != null && protocol.activeUsers > 0) || protocol.programIds ? (
+      {(protocol.activeUsers != null && protocol.activeUsers > 0) || metrics?.transactionCount != null ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {protocol.activeUsers != null && protocol.activeUsers > 0 ? (
             <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
@@ -171,56 +178,55 @@ export function ProtocolDetailPanel({
               {protocol.activeUsers.toLocaleString("en-US")} active users
             </Badge>
           ) : null}
-          <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
-            <DatabaseIcon className="size-3" />
-            {(protocol.programIds?.length ?? 0).toLocaleString("en-US")} programs
-          </Badge>
+          {metrics?.transactionCount != null ? (
+            <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
+              <ActivityIcon className="size-3" />
+              {metrics.transactionCount.toLocaleString("en-US")} transactions
+            </Badge>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="mt-3 grid grid-cols-3 divide-x divide-border/60 border-y border-border/60">
-        <div className="px-3 py-2.5">
-          <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">TVL</div>
-          <div className="mt-0.5 truncate text-sm tabular-nums">
-            {optionalUsd(metrics?.tvlUsd)}
-          </div>
+      {statCells.length > 0 ? (
+        <div
+          className="mt-3 grid divide-x divide-border/60 border-y border-border/60"
+          style={{ gridTemplateColumns: `repeat(${statCells.length}, minmax(0, 1fr))` }}
+        >
+          {statCells.map((cell) => (
+            <div key={cell.label} className="px-3 py-2.5">
+              <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
+                {cell.label}
+              </div>
+              <div className="mt-0.5 truncate text-sm tabular-nums">{cell.value}</div>
+            </div>
+          ))}
         </div>
-        <div className="px-3 py-2.5">
-          <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
-            24h Vol
-          </div>
-          <div className="mt-0.5 truncate text-sm tabular-nums">
-            {optionalUsd(metrics?.volume24hUsd)}
-          </div>
-        </div>
-        <div className="px-3 py-2.5">
-          <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
-            Active users
-          </div>
-          <div className="mt-0.5 truncate text-sm tabular-nums">
-            {optionalNumber(protocol.activeUsers)}
-          </div>
-        </div>
-      </div>
+      ) : null}
 
-      <div className="mt-3 flex items-center justify-between gap-2">
-        {delta == null ? (
-          <span className="inline-flex items-center rounded bg-muted/45 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-            TVL change unavailable
-          </span>
-        ) : (
-          <span
-            className={
-              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] " +
-              (positive
-                ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
-                : "bg-rose-500/12 text-rose-600 dark:text-rose-400")
-            }
-          >
-            {positive ? <ArrowUpRightIcon className="size-3" /> : <ArrowDownRightIcon className="size-3" />}
-            {formatDelta(delta)}
-          </span>
-        )}
+      <div
+        className={
+          "mt-3 flex items-center gap-2 " + (metrics?.tvlUsd != null ? "justify-between" : "justify-end")
+        }
+      >
+        {metrics?.tvlUsd != null ? (
+          delta == null ? (
+            <span className="inline-flex items-center rounded bg-muted/45 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              TVL change unavailable
+            </span>
+          ) : (
+            <span
+              className={
+                "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] " +
+                (positive
+                  ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
+                  : "bg-rose-500/12 text-rose-600 dark:text-rose-400")
+              }
+            >
+              {positive ? <ArrowUpRightIcon className="size-3" /> : <ArrowDownRightIcon className="size-3" />}
+              {formatDelta(delta)}
+            </span>
+          )
+        ) : null}
         <div className="flex items-center gap-1.5">
           {protocol.website ? (
             <Button
