@@ -16,7 +16,7 @@ import {
   UsersIcon,
   WalletIcon,
 } from "lucide-react";
-import { Area, AreaChart } from "recharts";
+import { Area, AreaChart, XAxis, YAxis } from "recharts";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Checkbox } from "@orbit/ui/checkbox";
@@ -215,18 +215,6 @@ function sortWallets(wallets: TrackallTopWallet[], key: WalletSortKey, direction
 function formatCapturedAt(value: string) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "—";
-  return date.toLocaleString("en-US", {
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-  });
-}
-
-function formatMetricsTime(value: string | null | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
   return date.toLocaleString("en-US", {
     day: "numeric",
     hour: "2-digit",
@@ -559,15 +547,8 @@ function ActivityChartCard({
         </div>
       </header>
 
-      <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full" style={{ backgroundColor: color }} />
-          Trackall API
-        </span>
-      </div>
-
       {values.length > 1 ? (
-        <Chart.ChartContainer className="mt-4 h-60 [&_.recharts-yAxis_.recharts-cartesian-axis-tick_text]:tracking-normal">
+        <Chart.ChartContainer className="mt-4 h-60 [&_.recharts-cartesian-axis-tick_text]:!tracking-normal">
           <AreaChart data={chartData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
@@ -576,11 +557,25 @@ function ActivityChartCard({
               </linearGradient>
             </defs>
             <Chart.ChartGrid />
-            <Chart.ChartAxis dataKey="label" interval={tickInterval} />
-            <Chart.ChartAxis
-              axis="y"
+            <XAxis
+              dataKey="label"
+              interval={tickInterval}
+              tick={{ fontSize: 10, letterSpacing: 0 }}
+              tickLine={false}
+              axisLine={false}
+              tickMargin={10}
+              minTickGap={8}
+              stroke="currentColor"
+            />
+            <YAxis
               width={56}
               tickFormatter={(value) => axisValue(metric, Number(value))}
+              tick={{ fontSize: 10, letterSpacing: 0 }}
+              tickLine={false}
+              axisLine={false}
+              tickMargin={10}
+              minTickGap={8}
+              stroke="currentColor"
             />
             <Chart.ChartTooltip />
             <Area
@@ -753,7 +748,6 @@ export function ProtocolPage({
 
   if (!protocol || !detail) return <NotFound requestedId={requestedId} onBack={onBack} />;
   const symbol = protocol.symbol?.trim();
-  const metricsCapturedAt = formatMetricsTime(metrics?.capturedAt ?? metrics?.updatedAt);
 
   const selectSort = (key: WalletSortKey) => {
     if (sortKey === key) {
@@ -794,7 +788,7 @@ export function ProtocolPage({
       <header className="border-b border-border/60 px-6 py-3">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-            Protocol · Wallet API
+            Protocol · {protocol.name}
           </div>
           {protocol.website ? (
             <Button
@@ -844,21 +838,9 @@ export function ProtocolPage({
                   ) : null}
                 </div>
               ) : null}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="gap-1.5 font-mono text-[10px]">
-                  <ActivityIcon className="size-3" />
-                  {metricsStatus === "loading"
-                    ? "Metrics loading"
-                    : metricsStatus === "error"
-                      ? "Metrics unavailable"
-                      : metricsCapturedAt
-                        ? `Metrics ${metricsCapturedAt}`
-                        : "Metrics unavailable"}
-                </Badge>
-                {metricsStatus === "error" && metricsError ? (
-                  <span className="text-xs text-muted-foreground">{metricsError}</span>
-                ) : null}
-              </div>
+              {metricsStatus === "error" && metricsError ? (
+                <div className="mt-3 text-xs text-muted-foreground">{metricsError}</div>
+              ) : null}
             </div>
           </div>
 

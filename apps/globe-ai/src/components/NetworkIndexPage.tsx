@@ -22,7 +22,7 @@ export function NetworkIndexPage({
       <header className="border-b border-border/60 px-6 py-3">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
           <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.3em]">
-            Networks · Local registry
+            Networks
           </div>
         </div>
       </header>
