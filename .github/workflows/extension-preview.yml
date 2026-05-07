@@ -54,8 +54,7 @@ jobs:
           CLI="bunx vercel@${VERCEL_CLI_VERSION}"
 
           $CLI pull --yes --environment=preview --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --cwd apps/globe-ai
-          $CLI build --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --cwd apps/globe-ai
-          DEPLOY_URL=$($CLI deploy --prebuilt --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --cwd apps/globe-ai | tail -n1)
+          DEPLOY_URL=$($CLI deploy --yes --target=preview --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --cwd apps/globe-ai | tail -n1)
 
           echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
 
