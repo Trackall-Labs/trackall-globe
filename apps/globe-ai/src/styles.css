@@ -727,10 +727,18 @@ input {
   color: color-mix(in srgb, var(--muted-foreground) 68%, transparent);
 }
 
+.panel-footer span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .panel-footer strong,
 .panel-kpi {
   color: var(--foreground);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .network-footer-label {
@@ -787,6 +795,24 @@ input {
   opacity: 0.65;
 }
 
+.block-panel[data-status="connecting"] .live-dot {
+  background: color-mix(in srgb, var(--warning) 84%, var(--foreground) 16%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 24%, transparent);
+}
+
+.block-panel[data-status="connecting"] .live-dot::after {
+  border-color: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.block-panel[data-status="error"] .live-dot {
+  background: color-mix(in srgb, var(--destructive) 88%, var(--foreground) 12%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--destructive) 24%, transparent);
+}
+
+.block-panel[data-status="error"] .live-dot::after {
+  border-color: color-mix(in srgb, var(--destructive) 18%, transparent);
+}
+
 .block-bars {
   position: relative;
   display: flex;
@@ -815,6 +841,16 @@ input {
     transform 180ms ease;
 }
 
+.block-empty-state {
+  display: flex;
+  align-items: center;
+  min-height: 68px;
+  padding: 14px;
+  color: color-mix(in srgb, var(--muted-foreground) 76%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .block-bar:hover,
 .block-bar:focus-visible {
   outline: 0;
@@ -839,12 +875,28 @@ input {
   color: var(--warning);
 }
 
+.block-bar-fresh {
+  background: var(--success);
+  color: var(--success);
+}
+
+.block-bar-lagging {
+  background: var(--info);
+  color: var(--info);
+}
+
+.block-bar-stale,
+.block-bar-pending {
+  background: var(--warning);
+  color: var(--warning);
+}
+
 .block-hover-card {
   position: fixed;
   z-index: 45;
   transform: translate(-50%, calc(-100% - 8px));
   pointer-events: none;
-  min-width: 148px;
+  min-width: 210px;
   padding: 7px 9px;
   border-color: color-mix(in srgb, var(--border) 78%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);

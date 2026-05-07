@@ -4,17 +4,22 @@ import { createPortal } from "react-dom";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
-import { fmtCompact, fmtUsd } from "@/lib/format";
+import { clamp, fmtCompact, fmtUsd } from "@/lib/format";
 import { type Network } from "@/lib/networks";
-import type { BlockEntry } from "@/lib/use-block-stream";
+import type { TrackallSolanaChainMetrics } from "@/lib/trackall-api";
+import type { BlockEntry, BlockStreamStatus } from "@/lib/use-block-stream";
 
 type BlockPanelProps = {
   blocks: BlockEntry[];
   compact?: boolean;
+  streamError?: string | null;
+  streamStatus: BlockStreamStatus;
 };
 
 type MarketPanelProps = {
+  chainMetrics?: TrackallSolanaChainMetrics | null;
   compact?: boolean;
+  liveTps: number;
   network?: Network | null;
   protocolCount: number;
 };
@@ -25,83 +30,143 @@ type BlockPreview = {
   y: number;
 };
 
-function latencyColor(value: number) {
-  if (value < 620) return "latency-good";
-  if (value < 980) return "latency-ok";
+function latencyColor(value: number | null) {
+  if (value == null) return "latency-ok";
+  if (value < 1_000) return "latency-good";
+  if (value < 3_000) return "latency-ok";
   return "latency-warn";
 }
 
-export function BlockHistoryPanel({ blocks, compact }: BlockPanelProps) {
+function lagTone(value: number | null) {
+  if (value == null) return "pending";
+  if (value < 1_000) return "fresh";
+  if (value < 3_000) return "lagging";
+  return "stale";
+}
+
+function formatLag(value: number | null) {
+  if (value == null) return "Pending";
+  if (value < 1_000) return `${Math.round(value)} ms`;
+  return `${(value / 1_000).toFixed(1)} s`;
+}
+
+function formatMs(value: number | null) {
+  return value == null ? "Pending" : `${Math.round(value)} ms`;
+}
+
+function formatTps(value: number) {
+  if (value < 10) return value.toFixed(1);
+  return fmtCompact(value);
+}
+
+function formatChangePct(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return undefined;
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+function formatHash(value: string | undefined) {
+  if (!value) return "No hash";
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-6)}`;
+}
+
+function formatIsoTime(value: string) {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(timestamp);
+}
+
+function formatBlockTime(value: string | undefined) {
+  if (!value) return "No block time";
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp)) return value;
+  const ms = timestamp > 100_000_000_000 ? timestamp : timestamp * 1_000;
+  return formatIsoTime(new Date(ms).toISOString());
+}
+
+function blockTitle(block: BlockEntry) {
+  return block.blockHeight ? `#${Number(block.blockHeight).toLocaleString("en-US")}` : `Slot ${block.slot}`;
+}
+
+function streamStatusLabel(status: BlockStreamStatus, hasBlocks: boolean) {
+  if (status === "subscribed") return "Live Solana";
+  if (status === "connecting" && hasBlocks) return "Reconnecting";
+  if (status === "connecting") return "Connecting";
+  if (status === "error") return "Stream error";
+  return "Idle";
+}
+
+function lastBlockDurationMs(blocks: BlockEntry[]) {
+  const latest = blocks[0];
+  const previous = blocks[1];
+  if (!latest || !previous) return null;
+
+  const latestReceivedAt = Date.parse(latest.receivedAt);
+  const previousReceivedAt = Date.parse(previous.receivedAt);
+  if (Number.isNaN(latestReceivedAt) || Number.isNaN(previousReceivedAt)) return null;
+
+  return Math.max(0, latestReceivedAt - previousReceivedAt);
+}
+
+export function BlockHistoryPanel({ blocks, compact, streamError, streamStatus }: BlockPanelProps) {
   const latest = blocks[0];
   const [hoveredBlock, setHoveredBlock] = useState<BlockPreview | null>(null);
   const visible = blocks.slice(0, compact ? 24 : 32).reverse();
-  const avgLatency = useMemo(() => {
-    if (visible.length === 0) return 0;
-    return Math.round(
-      visible.reduce((total, block) => total + block.finalityMs, 0) / visible.length,
-    );
-  }, [visible]);
+  const lastDurationMs = useMemo(() => lastBlockDurationMs(blocks), [blocks]);
 
   return (
-    <Card className="data-panel block-panel" render={<aside />}>
+    <Card className="data-panel block-panel" data-status={streamStatus} render={<aside />}>
       <div className="panel-header">
         <div className="panel-title">
           <span className="live-dot" />
           <span>Block Stream</span>
         </div>
-        <span className="panel-kpi tabular-nums">
-          {latest ? (
-            <AnimatedNumber
-              value={latest.blockNum}
-              format={(n) => `#${Math.round(n).toLocaleString("en-US")}`}
-              duration={1100}
+        <span className="panel-kpi tabular-nums">{latest ? blockTitle(latest) : "..."}</span>
+      </div>
+      {visible.length > 0 ? (
+        <div
+          className="block-bars"
+          aria-label="Recent Solana blocks"
+          onPointerLeave={() => setHoveredBlock(null)}
+        >
+          {visible.map((block) => (
+            <BlockCandle
+              key={block.id}
+              block={block}
+              onBlur={() => setHoveredBlock(null)}
+              onPreview={(event) => {
+                const candleRect = event.currentTarget.getBoundingClientRect();
+                setHoveredBlock({
+                  block,
+                  x: Math.min(
+                    Math.max(candleRect.left + candleRect.width / 2, 88),
+                    window.innerWidth - 88,
+                  ),
+                  y: candleRect.top,
+                });
+              }}
             />
-          ) : null}
-        </span>
-      </div>
-      <div
-        className="block-bars"
-        aria-label="Recent blocks"
-        onPointerLeave={() => setHoveredBlock(null)}
-      >
-        {visible.map((block) => (
-          <BlockCandle
-            key={block.id}
-            block={block}
-            onBlur={() => setHoveredBlock(null)}
-            onPreview={(event) => {
-              const candleRect = event.currentTarget.getBoundingClientRect();
-              setHoveredBlock({
-                block,
-                x: Math.min(
-                  Math.max(candleRect.left + candleRect.width / 2, 88),
-                  window.innerWidth - 88,
-                ),
-                y: candleRect.top,
-              });
-            }}
-          />
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="block-empty-state" role="status">
+          {streamError ?? streamStatusLabel(streamStatus, false)}
+        </div>
+      )}
       {hoveredBlock ? <BlockHoverCard preview={hoveredBlock} /> : null}
       <div className="panel-footer">
-        <span>Avg latency</span>
-        <strong className={`${latencyColor(avgLatency)} tabular-nums`}>
-          <AnimatedNumber
-            value={avgLatency}
-            format={(n) => `${Math.round(n)} ms`}
-            duration={900}
-          />
+        <span>{streamError ?? streamStatusLabel(streamStatus, blocks.length > 0)}</span>
+        <strong className={`${latencyColor(lastDurationMs)} tabular-nums`}>
+          {latest ? formatMs(lastDurationMs) : "No blocks"}
         </strong>
       </div>
     </Card>
   );
-}
-
-function blockResultLabel(result: BlockEntry["proposalResult"]) {
-  if (result === "success") return "Finalized";
-  if (result === "failed") return "Failed";
-  return "Pending";
 }
 
 function BlockCandle({
@@ -113,13 +178,14 @@ function BlockCandle({
   onBlur: () => void;
   onPreview: (event: React.FocusEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => void;
 }) {
-  const height = `${Math.max(18, block.loadPct * 0.42)}px`;
-  const resultLabel = blockResultLabel(block.proposalResult);
+  const lag = block.receivedLagMs ?? 2_000;
+  const height = `${Math.round(clamp(46 - lag / 100, 18, 46))}px`;
+  const tone = lagTone(block.receivedLagMs);
 
   return (
     <button
-      aria-label={`Block ${block.blockNum.toLocaleString("en-US")}, ${resultLabel}, ${block.finalityMs}ms finality`}
-      className={`block-bar block-bar-${block.proposalResult}`}
+      aria-label={`${block.blockHeight ? `Block ${block.blockHeight}` : `Slot ${block.slot}`}, received ${formatLag(block.receivedLagMs)}`}
+      className={`block-bar block-bar-${tone}`}
       onBlur={onBlur}
       onFocus={onPreview}
       onPointerEnter={onPreview}
@@ -130,8 +196,6 @@ function BlockCandle({
 }
 
 function BlockHoverCard({ preview }: { preview: BlockPreview }) {
-  const resultLabel = blockResultLabel(preview.block.proposalResult);
-
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -140,16 +204,25 @@ function BlockHoverCard({ preview }: { preview: BlockPreview }) {
       style={{ left: `${preview.x}px`, top: `${preview.y}px` }}
       role="status"
     >
-      <span className="block-tooltip-kicker">{resultLabel}</span>
-      <strong>#{preview.block.blockNum.toLocaleString("en-US")}</strong>
-      <span>{preview.block.validator}</span>
-      <span>{preview.block.finalityMs} ms finality</span>
+      <span className="block-tooltip-kicker">Solana block meta</span>
+      <strong>{blockTitle(preview.block)}</strong>
+      <span>Slot {Number(preview.block.slot).toLocaleString("en-US")}</span>
+      <span>{formatHash(preview.block.blockhash)}</span>
+      <span>Parent {preview.block.parentSlot ?? "unknown"}</span>
+      <span>Block time {formatBlockTime(preview.block.blockTime)}</span>
+      <span>Received {formatIsoTime(preview.block.receivedAt)} · {formatLag(preview.block.receivedLagMs)}</span>
     </div>,
     document.body,
   );
 }
 
-export function MarketMetricsPanel({ protocolCount, compact, network }: MarketPanelProps) {
+export function MarketMetricsPanel({
+  chainMetrics,
+  compact,
+  liveTps,
+  network,
+  protocolCount,
+}: MarketPanelProps) {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -157,10 +230,10 @@ export function MarketMetricsPanel({ protocolCount, compact, network }: MarketPa
     return () => window.clearInterval(interval);
   }, []);
 
-  const tvl = 62_460_000_000 + Math.sin(tick / 3) * 320_000_000;
-  const volume = 14_240_000_000 + Math.cos(tick / 4) * 180_000_000;
-  const tps = Math.round(3842 + Math.sin(tick / 2) * 420);
-
+  const tvl = chainMetrics?.tvlUsd ?? 62_460_000_000 + Math.sin(tick / 3) * 320_000_000;
+  const volume = chainMetrics?.volume24hUsd ?? 14_240_000_000 + Math.cos(tick / 4) * 180_000_000;
+  const tvlDelta = formatChangePct(chainMetrics?.tvlChange24hPct);
+  const volumeDelta = formatChangePct(chainMetrics?.volumeChange24hPct);
   return (
     <Card className="data-panel market-panel" render={<aside />}>
       <div className="panel-header">
@@ -171,9 +244,9 @@ export function MarketMetricsPanel({ protocolCount, compact, network }: MarketPa
         <span className="panel-kpi">{protocolCount} Protocols</span>
       </div>
       <div className="metric-grid" data-compact={compact ? "" : undefined}>
-        <Metric icon={<TrendingUpIcon />} label="Total TVL" value={tvl} format={fmtUsd} delta="+1.84%" />
-        <Metric icon={<DatabaseIcon />} label="24h Volume" value={volume} format={fmtUsd} delta="-0.42%" />
-        <Metric icon={<RadioTowerIcon />} label="Live TPS" value={tps} format={fmtCompact} delta="rolling" />
+        <Metric icon={<TrendingUpIcon />} label="Total TVL" value={tvl} format={fmtUsd} delta={tvlDelta} />
+        <Metric icon={<DatabaseIcon />} label="24h Volume" value={volume} format={fmtUsd} delta={volumeDelta} />
+        <Metric icon={<RadioTowerIcon />} label="Live TPS" value={liveTps} format={formatTps} />
       </div>
       <div className="panel-footer">
         <span className="network-footer-label">
@@ -202,9 +275,9 @@ function Metric({
   label: string;
   value: number;
   format: (n: number) => string;
-  delta: string;
+  delta?: string;
 }) {
-  const deltaVariant = delta.startsWith("-") ? "error" : delta.startsWith("+") ? "success" : "info";
+  const deltaVariant = delta?.startsWith("-") ? "error" : delta?.startsWith("+") ? "success" : "info";
 
   return (
     <div className="metric">
@@ -213,9 +286,11 @@ function Metric({
       <strong className="tabular-nums">
         <AnimatedNumber value={value} format={format} />
       </strong>
-      <Badge variant={deltaVariant} size="sm" className="metric-delta font-mono tabular-nums">
-        {delta}
-      </Badge>
+      {delta ? (
+        <Badge variant={deltaVariant} size="sm" className="metric-delta font-mono tabular-nums">
+          {delta}
+        </Badge>
+      ) : null}
     </div>
   );
 }

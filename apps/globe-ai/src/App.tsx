@@ -546,7 +546,12 @@ function RouteTransition({
 }
 
 export function App() {
-  const { blocks } = useBlockStream();
+  const {
+    blocks,
+    error: blockStreamError,
+    status: blockStreamStatus,
+    transactionsPerSecond,
+  } = useBlockStream();
   const compact = useCompactLayout();
   const [pinMode, setPinMode] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<SelectedCountry | null>(null);
@@ -941,12 +946,19 @@ export function App() {
             <>
               {mobilePanel === "blocks" ? (
                 <div className="mobile-panel-sheet">
-                  <BlockHistoryPanel blocks={blocks} compact />
+                  <BlockHistoryPanel
+                    blocks={blocks}
+                    compact
+                    streamError={blockStreamError}
+                    streamStatus={blockStreamStatus}
+                  />
                 </div>
               ) : null}
               {mobilePanel === "markets" ? (
                 <div className="mobile-panel-sheet">
                   <MarketMetricsPanel
+                    chainMetrics={trackallSolanaMetrics?.chain ?? null}
+                    liveTps={transactionsPerSecond}
                     network={activeNetworkFilter}
                     protocolCount={filteredProtocols.length}
                     compact
@@ -957,8 +969,14 @@ export function App() {
             </>
           ) : (
             <>
-              <BlockHistoryPanel blocks={blocks} />
+              <BlockHistoryPanel
+                blocks={blocks}
+                streamError={blockStreamError}
+                streamStatus={blockStreamStatus}
+              />
               <MarketMetricsPanel
+                chainMetrics={trackallSolanaMetrics?.chain ?? null}
+                liveTps={transactionsPerSecond}
                 network={activeNetworkFilter}
                 protocolCount={filteredProtocols.length}
               />
