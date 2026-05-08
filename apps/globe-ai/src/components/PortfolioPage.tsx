@@ -1773,8 +1773,12 @@ function publishedPositions(state: RemotePortfolioState | null) {
 	return state.liveLoaded ? state.livePositions : state.cachePositions;
 }
 
+function portfolioPositionsReady(state: RemotePortfolioState | null) {
+	return Boolean(state?.cacheLoaded || state?.liveLoaded);
+}
+
 function portfolioDataReady(state: RemotePortfolioState | null) {
-	return Boolean(state?.cacheLoaded && state.tokensLoaded);
+	return Boolean(portfolioPositionsReady(state) && state?.tokensLoaded);
 }
 
 function portfolioMetadataReady(state: RemotePortfolioState | null) {
@@ -2074,17 +2078,30 @@ export function PortfolioPage({
 								...current,
 								loadingCache: false,
 								loadingPositionTokens: false,
-								positionError: errorMessage(error),
 							}
 						: current,
 				);
 			});
 
 		const cachePositionTokensPromise = Promise.all([
-			cachePromise,
+			cachePromise.catch(() => null),
 			tokensPromise,
 		])
 			.then(([cache, tokens]) => {
+				if (cache === null) {
+					setRemotePortfolio((current) =>
+						current?.address === loadWalletAddress
+							? {
+									...current,
+									loadingPositionTokens: false,
+									positionTokenError: null,
+									positionTokensLoaded: true,
+								}
+							: current,
+					);
+					return [];
+				}
+
 				const mints = missingPositionTokenMints(cache.positions, tokens);
 				if (mints.length === 0) {
 					setRemotePortfolio((current) =>
