@@ -74,8 +74,12 @@ import {
   type TrackallAggregateTopWallet,
   type TrackallSolanaPlatformMetricsResponse,
 } from "@/lib/trackall-api";
+import type { BlockEntry, BlockStreamStatus } from "@/lib/use-block-stream";
 
 type Props = {
+  blockStreamBlocks: BlockEntry[];
+  blockStreamError: string | null;
+  blockStreamStatus: BlockStreamStatus;
   network: Network | null;
   protocols: Protocol[];
   solanaMetrics: TrackallSolanaPlatformMetricsResponse | null;
@@ -715,16 +719,179 @@ function blockResultTone(result: NetworkBlockRow["proposalResult"]) {
   return "bg-amber-500/80";
 }
 
-function RecentBlocksStrip({ blocks }: { blocks: NetworkBlockRow[] }) {
-  const avgFinality = useMemo(() => {
-    if (blocks.length === 0) return 0;
-    return Math.round(blocks.reduce((sum, block) => sum + block.finalityMs, 0) / blocks.length);
-  }, [blocks]);
-  const successRate = useMemo(() => {
-    if (blocks.length === 0) return 0;
-    const success = blocks.filter((block) => block.proposalResult === "success").length;
-    return (success / blocks.length) * 100;
-  }, [blocks]);
+function liveStreamStatusLabel(status: BlockStreamStatus, hasBlocks: boolean) {
+  if (status === "subscribed") return "Live";
+  if (status === "connecting" && hasBlocks) return "Reconnecting";
+  if (status === "connecting") return "Connecting";
+  if (status === "error") return "Stream error";
+  return "Idle";
+}
+
+function formatLiveBlockLag(value: number | null) {
+  if (value == null) return "pending";
+  if (value < 1_000) return `${Math.round(value)}ms`;
+  return `${(value / 1_000).toFixed(1)}s`;
+}
+
+function formatLiveBlockHash(value: string | undefined) {
+  if (!value) return "no hash";
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-6)}`;
+}
+
+function formatLiveBlockTime(value: string | undefined) {
+  if (!value) return "No block time";
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp)) return value;
+  const ms = timestamp > 100_000_000_000 ? timestamp : timestamp * 1_000;
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(ms);
+}
+
+function liveBlockTitle(block: BlockEntry) {
+  const height = block.blockHeight == null ? null : Number(block.blockHeight);
+  if (height != null && Number.isFinite(height)) return `#${height.toLocaleString("en-US")}`;
+  return `Slot ${Number(block.slot).toLocaleString("en-US")}`;
+}
+
+function averageLiveBlockMs(blocks: BlockEntry[]) {
+  if (blocks.length < 2) return null;
+  let total = 0;
+  let count = 0;
+  for (let index = 0; index < blocks.length - 1; index += 1) {
+    const previous = Date.parse(blocks[index]!.receivedAt);
+    const current = Date.parse(blocks[index + 1]!.receivedAt);
+    if (!Number.isFinite(current) || !Number.isFinite(previous)) continue;
+    total += Math.max(0, current - previous);
+    count += 1;
+  }
+  return count === 0 ? null : Math.round(total / count);
+}
+
+function liveBlockSlot(block: BlockEntry) {
+  const slot = Number(block.slot);
+  return Number.isFinite(slot) ? slot : null;
+}
+
+function compareLiveBlocksAscending(a: BlockEntry, b: BlockEntry) {
+  const aSlot = liveBlockSlot(a);
+  const bSlot = liveBlockSlot(b);
+  if (aSlot != null && bSlot != null && aSlot !== bSlot) return aSlot - bSlot;
+
+  const aReceivedAt = Date.parse(a.receivedAt);
+  const bReceivedAt = Date.parse(b.receivedAt);
+  return (Number.isFinite(aReceivedAt) ? aReceivedAt : 0) - (Number.isFinite(bReceivedAt) ? bReceivedAt : 0);
+}
+
+function liveBlockTone(index: number, total: number) {
+  const ageFromNewest = total - index - 1;
+  if (ageFromNewest < 4) return "bg-emerald-500/80";
+  if (ageFromNewest < 12) return "bg-sky-500/80";
+  return "bg-muted-foreground/45";
+}
+
+function liveBlockHeight(block: BlockEntry) {
+  const slot = liveBlockSlot(block) ?? Date.parse(block.receivedAt);
+  if (!Number.isFinite(slot)) return "32px";
+  return `${28 + (Math.abs(slot) % 18)}px`;
+}
+
+function RecentBlocksStrip({
+  blocks,
+  liveBlocks = [],
+  streamError = null,
+  streamStatus = "idle",
+}: {
+  blocks: NetworkBlockRow[];
+  liveBlocks?: BlockEntry[];
+  streamError?: string | null;
+  streamStatus?: BlockStreamStatus;
+}) {
+  if (liveBlocks.length > 0 || streamStatus !== "idle" || streamError) {
+    const visibleLiveBlocks = [...liveBlocks]
+      .sort(compareLiveBlocksAscending)
+      .slice(-24);
+    const avgBlockMs = averageLiveBlockMs(visibleLiveBlocks);
+    const latest = visibleLiveBlocks.at(-1);
+    const statusLabel = streamError ?? liveStreamStatusLabel(streamStatus, visibleLiveBlocks.length > 0);
+
+    return (
+      <section className="rounded-xl border border-border/60 bg-background/40 p-5">
+        <header className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <BoxIcon className="size-4 text-muted-foreground" />
+            <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
+              Block stream
+            </div>
+          </div>
+          <div className="flex items-center gap-3 font-mono text-[10px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className={
+                  "size-1.5 rounded-full " +
+                  (streamStatus === "subscribed" ? "bg-emerald-500" : streamStatus === "error" ? "bg-rose-500" : "bg-amber-500")
+                }
+              />
+              {statusLabel}
+            </span>
+            <span className="size-1 rounded-full bg-muted-foreground/40" />
+            <span className="tabular-nums">
+              avg {avgBlockMs == null ? "pending" : `${avgBlockMs}ms`}
+            </span>
+          </div>
+        </header>
+
+        {visibleLiveBlocks.length > 0 ? (
+          <div className="mt-4 grid grid-cols-12 gap-1 sm:grid-cols-24" role="list">
+            {visibleLiveBlocks.map((block, index) => {
+              return (
+                <button
+                  key={block.id}
+                  type="button"
+                  role="listitem"
+                  title={`${liveBlockTitle(block)} · ${formatLiveBlockHash(block.blockhash)} · parent ${block.parentSlot ?? "unknown"} · ${formatLiveBlockLag(block.receivedLagMs)}`}
+                  className="group relative flex h-12 items-end justify-center rounded-md transition-colors hover:bg-muted/40"
+                >
+                  <span
+                    className={
+                      "block w-full origin-bottom rounded-sm transition-all group-hover:opacity-100 " +
+                      liveBlockTone(index, visibleLiveBlocks.length)
+                    }
+                    style={{ height: liveBlockHeight(block) }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-border/60 bg-background/35 px-4 py-6 text-center text-sm text-muted-foreground">
+            {statusLabel}
+          </div>
+        )}
+
+        <footer className="mt-3 flex items-center justify-between gap-4 text-xs text-muted-foreground">
+          <span className="font-mono tabular-nums">{latest ? liveBlockTitle(latest) : "No live blocks"}</span>
+          <span className="truncate font-mono uppercase tracking-[0.18em]">
+            {latest
+              ? `${formatLiveBlockHash(latest.blockhash)} · ${formatLiveBlockTime(latest.blockTime)}`
+              : "waiting for blocks.meta"}
+          </span>
+        </footer>
+      </section>
+    );
+  }
+
+  const avgFinality =
+    blocks.length === 0
+      ? 0
+      : Math.round(blocks.reduce((sum, block) => sum + block.finalityMs, 0) / blocks.length);
+  const successRate =
+    blocks.length === 0
+      ? 0
+      : (blocks.filter((block) => block.proposalResult === "success").length / blocks.length) * 100;
 
   return (
     <section className="rounded-xl border border-border/60 bg-background/40 p-5">
@@ -1417,6 +1584,9 @@ function SolanaWalletsTable({ onOpenWallet }: { onOpenWallet: (address: string) 
 }
 
 export function NetworkPage({
+  blockStreamBlocks,
+  blockStreamError,
+  blockStreamStatus,
   network,
   protocols,
   solanaMetrics,
@@ -1679,7 +1849,12 @@ export function NetworkPage({
           onRangeChange={setChartRange}
         />
 
-        <RecentBlocksStrip blocks={detail.recentBlocks} />
+        <RecentBlocksStrip
+          blocks={detail.recentBlocks}
+          liveBlocks={isSolanaNetwork ? blockStreamBlocks : []}
+          streamError={isSolanaNetwork ? blockStreamError : null}
+          streamStatus={isSolanaNetwork ? blockStreamStatus : "idle"}
+        />
 
         <TopProtocolsTable
           rows={detail.topProtocols}

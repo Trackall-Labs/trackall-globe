@@ -889,6 +889,9 @@ export function App() {
           />
         ) : networkRouteActive ? (
           <NetworkPage
+            blockStreamBlocks={blocks}
+            blockStreamError={blockStreamError}
+            blockStreamStatus={blockStreamStatus}
             protocols={allProtocols}
             network={activeNetwork}
             solanaMetrics={trackallSolanaMetrics}
@@ -901,6 +904,9 @@ export function App() {
           />
         ) : anyNetworkRouteActive ? (
           <NetworkPage
+            blockStreamBlocks={blocks}
+            blockStreamError={blockStreamError}
+            blockStreamStatus={blockStreamStatus}
             protocols={allProtocols}
             network={null}
             solanaMetrics={trackallSolanaMetrics}
