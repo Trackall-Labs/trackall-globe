@@ -128,10 +128,13 @@ type ArcTone = "info" | "infoBright" | "primary";
 
 const ARC_TONE_ORDER: readonly ArcTone[] = ["info", "infoBright", "primary"];
 
-const ARC_DURATION_MIN_MS = 900;
-const ARC_DURATION_MAX_MS = 1100;
+const ARC_DURATION_MIN_MS = 300;
+const ARC_DURATION_MAX_MS = 400;
+const ARC_ORIGIN_LAT_MAX_SIN = 0.92;
 const ARC_FADE_START = 0.75;
-const ARC_MAX_PER_PROTOCOL = 2;
+const ARC_TOTAL_BUDGET = 20;
+const ARC_TPS_WINDOW_MS = 1000;
+const ARC_RECONCILE_INTERVAL_MS = 120;
 
 const ARC_SEGMENTS = 48;
 const ARC_SURFACE_RADIUS = 0.8;
@@ -448,6 +451,10 @@ export function GlobeScene({
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const suppressSelectionUntilRef = useRef(0);
   const activeArcsRef = useRef<Map<string, ActiveArc>>(new Map());
+  const txCountsRef = useRef<Map<string, number[]>>(new Map());
+  const protocolByIdRef = useRef<Map<string, Protocol>>(new Map());
+  const arcUidRef = useRef(0);
+  const lastReconcileRef = useRef(0);
   const cameraTargetRef = useRef<CameraTarget | null>(null);
   const lastFanProgressRef = useRef(-1);
   const lastFanActiveRef = useRef(false);
@@ -540,15 +547,18 @@ export function GlobeScene({
 
   const programIdToProtocolRef = useRef<Map<string, Protocol>>(new Map());
   useEffect(() => {
-    const map = new Map<string, Protocol>();
+    const programIdMap = new Map<string, Protocol>();
+    const protocolMap = new Map<string, Protocol>();
     for (const protocol of protocols) {
+      protocolMap.set(protocol.id, protocol);
       const ids = protocol.programIds;
       if (!ids) continue;
       for (const programId of ids) {
-        if (!map.has(programId)) map.set(programId, protocol);
+        if (!programIdMap.has(programId)) programIdMap.set(programId, protocol);
       }
     }
-    programIdToProtocolRef.current = map;
+    programIdToProtocolRef.current = programIdMap;
+    protocolByIdRef.current = protocolMap;
   }, [protocols]);
 
   useEffect(() => {
@@ -556,6 +566,10 @@ export function GlobeScene({
     const arcs = activeArcsRef.current;
     for (const [key, arc] of Array.from(arcs.entries())) {
       if (!known.has(arc.protocolId)) arcs.delete(key);
+    }
+    const txCounts = txCountsRef.current;
+    for (const protocolId of Array.from(txCounts.keys())) {
+      if (!known.has(protocolId)) txCounts.delete(protocolId);
     }
   }, [protocols]);
 
@@ -565,36 +579,17 @@ export function GlobeScene({
       spawnArcsForTransaction(matchedProgramIds) {
         if (!matchedProgramIds || matchedProgramIds.length === 0) return;
         const programIdToProtocol = programIdToProtocolRef.current;
-        const arcs = activeArcsRef.current;
+        const txCounts = txCountsRef.current;
         const now = performance.now();
         for (const programId of matchedProgramIds) {
           const protocol = programIdToProtocol.get(programId);
           if (!protocol) continue;
-          let slotKey: string | null = null;
-          for (let slot = 0; slot < ARC_MAX_PER_PROTOCOL; slot++) {
-            const candidate = `${protocol.id}#${slot}`;
-            if (!arcs.has(candidate)) {
-              slotKey = candidate;
-              break;
-            }
+          let timestamps = txCounts.get(protocol.id);
+          if (!timestamps) {
+            timestamps = [];
+            txCounts.set(protocol.id, timestamps);
           }
-          if (slotKey === null) continue;
-          const origin = PIN_COUNTRY_TARGETS[
-            Math.floor(Math.random() * PIN_COUNTRY_TARGETS.length)
-          ]!;
-          const fromLatLng: [number, number] = [origin.lat, origin.lng];
-          const toLatLng: [number, number] = [protocol.lat, protocol.lng];
-          const tone = ARC_TONE_ORDER[hashStringToIndex(protocol.id, ARC_TONE_ORDER.length)]!;
-          const duration =
-            ARC_DURATION_MIN_MS +
-            Math.random() * (ARC_DURATION_MAX_MS - ARC_DURATION_MIN_MS);
-          arcs.set(slotKey, {
-            protocolId: protocol.id,
-            startedAt: now,
-            duration,
-            tone,
-            waypoints: buildArcWaypoints(fromLatLng, toLatLng),
-          });
+          timestamps.push(now);
         }
       },
     }),
@@ -655,7 +650,75 @@ export function GlobeScene({
     const arcsCanvas = arcsCanvasRef.current;
     const arcsCtx = arcsCanvas?.getContext("2d") ?? null;
 
+    const reconcileArcs = (now: number) => {
+      if (now - lastReconcileRef.current < ARC_RECONCILE_INTERVAL_MS) return;
+      lastReconcileRef.current = now;
+
+      const txCounts = txCountsRef.current;
+      const cutoff = now - ARC_TPS_WINDOW_MS;
+      let totalCount = 0;
+      for (const [protocolId, timestamps] of Array.from(txCounts.entries())) {
+        let drop = 0;
+        while (drop < timestamps.length && timestamps[drop]! < cutoff) drop++;
+        if (drop > 0) timestamps.splice(0, drop);
+        if (timestamps.length === 0) txCounts.delete(protocolId);
+        else totalCount += timestamps.length;
+      }
+      if (totalCount === 0) return;
+
+      const desired = new Map<string, number>();
+      const fractions: Array<[string, number]> = [];
+      let allocated = 0;
+      for (const [protocolId, timestamps] of txCounts) {
+        const share = (ARC_TOTAL_BUDGET * timestamps.length) / totalCount;
+        const base = Math.floor(share);
+        desired.set(protocolId, base);
+        allocated += base;
+        fractions.push([protocolId, share - base]);
+      }
+      fractions.sort((a, b) => b[1] - a[1]);
+      for (const [protocolId] of fractions) {
+        if (allocated >= ARC_TOTAL_BUDGET) break;
+        desired.set(protocolId, (desired.get(protocolId) ?? 0) + 1);
+        allocated++;
+      }
+
+      const arcs = activeArcsRef.current;
+      const current = new Map<string, number>();
+      for (const arc of arcs.values()) {
+        current.set(arc.protocolId, (current.get(arc.protocolId) ?? 0) + 1);
+      }
+
+      const protocolById = protocolByIdRef.current;
+      for (const [protocolId, want] of desired) {
+        const have = current.get(protocolId) ?? 0;
+        if (have >= want) continue;
+        const protocol = protocolById.get(protocolId);
+        if (!protocol) continue;
+        const tone = ARC_TONE_ORDER[hashStringToIndex(protocol.id, ARC_TONE_ORDER.length)]!;
+        const toLatLng: [number, number] = [protocol.lat, protocol.lng];
+        for (let i = 0; i < want - have; i++) {
+          const sinLat = (Math.random() * 2 - 1) * ARC_ORIGIN_LAT_MAX_SIN;
+          const fromLat = (Math.asin(sinLat) * 180) / Math.PI;
+          const fromLng = Math.random() * 360 - 180;
+          const fromLatLng: [number, number] = [fromLat, fromLng];
+          const duration =
+            ARC_DURATION_MIN_MS +
+            Math.random() * (ARC_DURATION_MAX_MS - ARC_DURATION_MIN_MS);
+          const uid = `${protocol.id}#${arcUidRef.current++}`;
+          arcs.set(uid, {
+            protocolId: protocol.id,
+            startedAt: now - Math.random() * duration * 0.6,
+            duration,
+            tone,
+            waypoints: buildArcWaypoints(fromLatLng, toLatLng),
+          });
+        }
+      }
+    };
+
     const drawArcs = (now: number) => {
+      reconcileArcs(now);
       if (!arcsCanvas || !arcsCtx) return;
       const cssW = size.width;
       const cssH = size.height;
