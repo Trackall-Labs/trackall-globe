@@ -12,7 +12,7 @@ import { ExternalLinkIcon, MousePointer2Icon } from "lucide-react";
 import { Card } from "@orbit/ui/card";
 import { toastManager } from "@orbit/ui/toast";
 import { AppHeader, type AppHeaderRoute } from "./components/AppHeader";
-import { GlobeScene } from "./components/GlobeScene";
+import { GlobeScene, type GlobeSceneHandle } from "./components/GlobeScene";
 import { NetworkFilterChip } from "./components/NetworkFilterChip";
 import { NetworkIndexPage } from "./components/NetworkIndexPage";
 import { BlockHistoryPanel, MarketMetricsPanel, MobilePanelTabs } from "./components/Panels";
@@ -56,7 +56,7 @@ import {
   type TrackallSolanaPlatformMetrics,
 } from "./lib/trackall-api";
 import type { Protocol, WalletPin } from "./lib/types";
-import { useBlockStream } from "./lib/use-block-stream";
+import { useBlockStream, type SolanaTransactionMessage } from "./lib/use-block-stream";
 
 type SelectedCountry = {
   country: string;
@@ -546,12 +546,18 @@ function RouteTransition({
 }
 
 export function App() {
+  const globeSceneRef = useRef<GlobeSceneHandle | null>(null);
+  const handleStreamTransaction = useCallback((tx: SolanaTransactionMessage) => {
+    if (tx.failed) return;
+    if (tx.matchedProgramIds.length === 0) return;
+    globeSceneRef.current?.spawnArcsForTransaction(tx.matchedProgramIds);
+  }, []);
   const {
     blocks,
     error: blockStreamError,
     status: blockStreamStatus,
     transactionsPerSecond,
-  } = useBlockStream();
+  } = useBlockStream({ onTransaction: handleStreamTransaction });
   const compact = useCompactLayout();
   const [pinMode, setPinMode] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<SelectedCountry | null>(null);
@@ -841,6 +847,7 @@ export function App() {
       ) : null}
 
       <GlobeScene
+        ref={globeSceneRef}
         active={homeRouteActive}
         protocols={filteredProtocols}
         pins={pins}

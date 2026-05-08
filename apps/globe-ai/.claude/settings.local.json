@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/sniezka/trackall/trackall-globe/**)",
+      "Bash(npm run *)"
+    ]
+  }
+}

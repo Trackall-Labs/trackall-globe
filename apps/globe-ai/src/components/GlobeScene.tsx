@@ -1,5 +1,14 @@
 import createGlobe, { type COBEOptions, type Marker } from "cobe";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type Ref,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   getCountryName,
@@ -9,6 +18,10 @@ import {
 import { clusterProtocols, zoomToSplit, type Cluster } from "@/lib/clusters";
 import type { Protocol, WalletPin } from "@/lib/types";
 
+export type GlobeSceneHandle = {
+  spawnArcsForTransaction: (matchedProgramIds: string[]) => void;
+};
+
 type Props = {
   active?: boolean;
   protocols: Protocol[];
@@ -17,6 +30,7 @@ type Props = {
   onCountrySelected: (country: string, feature: CountryFeature) => void;
   onProtocolSelected: (protocol: Protocol) => void;
   onProtocolPreviewChange?: (protocol: Protocol | null, anchor?: { x: number; y: number }) => void;
+  ref?: Ref<GlobeSceneHandle>;
 };
 
 type CobeTheme = {
@@ -112,31 +126,12 @@ const CHART_TOKENS = [
 
 type ArcTone = "info" | "infoBright" | "primary";
 
-const ARC_ROUTES: ReadonlyArray<{
-  from: string;
-  to: string;
-  offset: number;
-  duration: number;
-  tone: ArcTone;
-}> = [
-  { from: "comp", to: "uni", offset: 0, duration: 2200, tone: "info" },
-  { from: "uni", to: "aave", offset: 380, duration: 2400, tone: "infoBright" },
-  { from: "aave", to: "lido", offset: 820, duration: 1900, tone: "info" },
-  { from: "curve", to: "gmx", offset: 1540, duration: 2700, tone: "infoBright" },
-  { from: "gmx", to: "jup", offset: 600, duration: 2000, tone: "info" },
-  { from: "jup", to: "ray", offset: 1920, duration: 1600, tone: "primary" },
-  { from: "navi", to: "suilend", offset: 280, duration: 1900, tone: "infoBright" },
-  { from: "suilend", to: "scallop", offset: 680, duration: 2100, tone: "info" },
-  { from: "scallop", to: "current", offset: 1140, duration: 2250, tone: "primary" },
-  { from: "current", to: "alphalend", offset: 1560, duration: 2050, tone: "infoBright" },
-  { from: "springsui", to: "haedal", offset: 340, duration: 1800, tone: "primary" },
-  { from: "haedal", to: "volo-lst", offset: 980, duration: 2200, tone: "info" },
-  { from: "cetus", to: "bluefin", offset: 1040, duration: 2300, tone: "primary" },
-  { from: "bluefin", to: "deepbook", offset: 1480, duration: 1850, tone: "infoBright" },
-  { from: "deepbook", to: "momentum", offset: 1880, duration: 2150, tone: "info" },
-  { from: "bucket", to: "alphafi", offset: 520, duration: 2350, tone: "primary" },
-  { from: "alphafi", to: "cetus", offset: 1320, duration: 1950, tone: "infoBright" },
-] as const;
+const ARC_TONE_ORDER: readonly ArcTone[] = ["info", "infoBright", "primary"];
+
+const ARC_DURATION_MIN_MS = 900;
+const ARC_DURATION_MAX_MS = 1100;
+const ARC_FADE_START = 0.75;
+const ARC_MAX_PER_PROTOCOL = 2;
 
 const ARC_SEGMENTS = 48;
 const ARC_SURFACE_RADIUS = 0.8;
@@ -147,7 +142,6 @@ const ARC_LINE_WIDTH = 1.65;
 const ARC_BASE_LINE_WIDTH = 0.9;
 const ARC_BASE_ALPHA = 0.11;
 const ARC_GLOW_BLUR = 4;
-const ARC_PULSE_COUNT = 1;
 
 const PIN_COUNTRY_TARGETS = [
   { country: "United States of America", label: "United States", lat: 37.7749, lng: -122.4194 },
@@ -173,6 +167,14 @@ const SELECT_SUPPRESS_MS = 260;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function hashStringToIndex(value: string, modulo: number) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return ((hash % modulo) + modulo) % modulo;
 }
 
 function wrapRadians(value: number) {
@@ -413,6 +415,14 @@ function formatActiveUsers(value: number) {
   return value.toLocaleString("en-US");
 }
 
+type ActiveArc = {
+  protocolId: string;
+  startedAt: number;
+  duration: number;
+  tone: ArcTone;
+  waypoints: [number, number, number][];
+};
+
 export function GlobeScene({
   active = true,
   protocols,
@@ -421,6 +431,7 @@ export function GlobeScene({
   onCountrySelected,
   onProtocolSelected,
   onProtocolPreviewChange,
+  ref,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const arcsCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -436,7 +447,7 @@ export function GlobeScene({
   const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const suppressSelectionUntilRef = useRef(0);
-  const arcEpochRef = useRef(performance.now());
+  const activeArcsRef = useRef<Map<string, ActiveArc>>(new Map());
   const cameraTargetRef = useRef<CameraTarget | null>(null);
   const lastFanProgressRef = useRef(-1);
   const lastFanActiveRef = useRef(false);
@@ -507,10 +518,18 @@ export function GlobeScene({
     })),
   );
   const markerEventsRef = useRef(new Map<string, string>());
-  useEffect(() => {
+  useLayoutEffect(() => {
     markersRef.current = markers;
     markersDirtyRef.current = true;
-  }, [markers]);
+    globeRef.current?.update({ markers });
+    const wrapper = anchorRoot;
+    if (wrapper) {
+      const layer = wrapper.querySelector(".cobe-marker-layer");
+      if (layer && wrapper.lastElementChild !== layer) {
+        wrapper.appendChild(layer);
+      }
+    }
+  }, [anchorRoot, markers]);
   useEffect(() => {
     markerInteractivityTargetsRef.current = clusters.map((cluster) => ({
       id: cluster.id,
@@ -519,26 +538,68 @@ export function GlobeScene({
     }));
   }, [clusters]);
 
-  const arcRoutes = useMemo(() => {
-    const byId = new Map(protocols.map((protocol) => [protocol.id, protocol]));
-    return ARC_ROUTES.map((route, index) => {
-      const from = byId.get(route.from);
-      const to = byId.get(route.to);
-      if (!from || !to) return null;
-      const fromLatLng: [number, number] = [from.lat, from.lng];
-      const toLatLng: [number, number] = [to.lat, to.lng];
-      return {
-        index,
-        id: `${route.from}-${route.to}`,
-        from: fromLatLng,
-        to: toLatLng,
-        offset: route.offset,
-        duration: route.duration,
-        tone: route.tone,
-        waypoints: buildArcWaypoints(fromLatLng, toLatLng),
-      };
-    }).filter((value): value is NonNullable<typeof value> => value !== null);
+  const programIdToProtocolRef = useRef<Map<string, Protocol>>(new Map());
+  useEffect(() => {
+    const map = new Map<string, Protocol>();
+    for (const protocol of protocols) {
+      const ids = protocol.programIds;
+      if (!ids) continue;
+      for (const programId of ids) {
+        if (!map.has(programId)) map.set(programId, protocol);
+      }
+    }
+    programIdToProtocolRef.current = map;
   }, [protocols]);
+
+  useEffect(() => {
+    const known = new Set(protocols.map((protocol) => protocol.id));
+    const arcs = activeArcsRef.current;
+    for (const [key, arc] of Array.from(arcs.entries())) {
+      if (!known.has(arc.protocolId)) arcs.delete(key);
+    }
+  }, [protocols]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      spawnArcsForTransaction(matchedProgramIds) {
+        if (!matchedProgramIds || matchedProgramIds.length === 0) return;
+        const programIdToProtocol = programIdToProtocolRef.current;
+        const arcs = activeArcsRef.current;
+        const now = performance.now();
+        for (const programId of matchedProgramIds) {
+          const protocol = programIdToProtocol.get(programId);
+          if (!protocol) continue;
+          let slotKey: string | null = null;
+          for (let slot = 0; slot < ARC_MAX_PER_PROTOCOL; slot++) {
+            const candidate = `${protocol.id}#${slot}`;
+            if (!arcs.has(candidate)) {
+              slotKey = candidate;
+              break;
+            }
+          }
+          if (slotKey === null) continue;
+          const origin = PIN_COUNTRY_TARGETS[
+            Math.floor(Math.random() * PIN_COUNTRY_TARGETS.length)
+          ]!;
+          const fromLatLng: [number, number] = [origin.lat, origin.lng];
+          const toLatLng: [number, number] = [protocol.lat, protocol.lng];
+          const tone = ARC_TONE_ORDER[hashStringToIndex(protocol.id, ARC_TONE_ORDER.length)]!;
+          const duration =
+            ARC_DURATION_MIN_MS +
+            Math.random() * (ARC_DURATION_MAX_MS - ARC_DURATION_MIN_MS);
+          arcs.set(slotKey, {
+            protocolId: protocol.id,
+            startedAt: now,
+            duration,
+            tone,
+            waypoints: buildArcWaypoints(fromLatLng, toLatLng),
+          });
+        }
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     activeRef.current = active;
@@ -614,10 +675,21 @@ export function GlobeScene({
       arcsCtx.lineCap = "round";
       arcsCtx.lineJoin = "round";
 
-      const baseEpoch = arcEpochRef.current;
+      const arcs = activeArcsRef.current;
+      const expired: string[] = [];
 
-      for (const route of arcRoutes) {
-        const points = route.waypoints;
+      for (const [key, arc] of arcs) {
+        const elapsed = now - arc.startedAt;
+        const cycle = elapsed / arc.duration;
+        if (cycle >= 1) {
+          expired.push(key);
+          continue;
+        }
+        const fadeAlpha =
+          cycle < ARC_FADE_START
+            ? 1
+            : Math.max(0, 1 - (cycle - ARC_FADE_START) / (1 - ARC_FADE_START));
+        const points = arc.waypoints;
         const projected: { x: number; y: number; visible: boolean }[] = new Array(
           points.length,
         );
@@ -669,7 +741,7 @@ export function GlobeScene({
         if (current) runs.push(current);
         if (runs.length === 0) continue;
 
-        const baseColor = tonePalette[route.tone];
+        const baseColor = tonePalette[arc.tone];
         const baseCss = rgbToCss(baseColor, ARC_BASE_ALPHA);
         const brightCss = rgbToCss(baseColor, 0.95);
         const glowCss = rgbToCss(baseColor, 0.55);
@@ -679,6 +751,7 @@ export function GlobeScene({
         arcsCtx.lineWidth = ARC_BASE_LINE_WIDTH;
         arcsCtx.strokeStyle = baseCss;
         arcsCtx.shadowBlur = 0;
+        arcsCtx.globalAlpha = fadeAlpha;
         for (const run of runs) {
           arcsCtx.beginPath();
           const first = run.points[0]!;
@@ -690,8 +763,6 @@ export function GlobeScene({
           arcsCtx.stroke();
         }
 
-        const elapsed = now - baseEpoch - route.offset;
-        if (elapsed < 0) continue;
         const dashLen = Math.max(10, totalLen * ARC_DASH_RATIO);
         const gapLen = Math.max(totalLen * 6, dashLen * 6);
         const traversal = totalLen + dashLen;
@@ -702,26 +773,26 @@ export function GlobeScene({
         arcsCtx.shadowBlur = ARC_GLOW_BLUR;
         arcsCtx.setLineDash([dashLen, gapLen]);
 
-        for (let pulseIndex = 0; pulseIndex < ARC_PULSE_COUNT; pulseIndex++) {
-          const baseCycle = (elapsed % route.duration) / route.duration;
-          const cycle = (baseCycle + pulseIndex / ARC_PULSE_COUNT) % 1;
-          const pulse = (0.42 + 0.44 * Math.sin(cycle * Math.PI)) * (pulseIndex === 0 ? 1 : 0.7);
-          arcsCtx.globalAlpha = pulse;
+        const pulse = 0.42 + 0.44 * Math.sin(cycle * Math.PI);
+        arcsCtx.globalAlpha = pulse * fadeAlpha;
 
-          for (const run of runs) {
-            arcsCtx.lineDashOffset = run.startLen + dashLen - cycle * traversal;
-            arcsCtx.beginPath();
-            const first = run.points[0]!;
-            arcsCtx.moveTo(first[0], first[1]);
-            for (let j = 1; j < run.points.length; j++) {
-              const point = run.points[j]!;
-              arcsCtx.lineTo(point[0], point[1]);
-            }
-            arcsCtx.stroke();
+        for (const run of runs) {
+          arcsCtx.lineDashOffset = run.startLen + dashLen - cycle * traversal;
+          arcsCtx.beginPath();
+          const first = run.points[0]!;
+          arcsCtx.moveTo(first[0], first[1]);
+          for (let j = 1; j < run.points.length; j++) {
+            const point = run.points[j]!;
+            arcsCtx.lineTo(point[0], point[1]);
           }
+          arcsCtx.stroke();
         }
         arcsCtx.globalAlpha = 1;
         arcsCtx.shadowBlur = 0;
+      }
+
+      for (const key of expired) {
+        arcs.delete(key);
       }
     };
 
@@ -1018,7 +1089,7 @@ export function GlobeScene({
       }
       globeRef.current = null;
     };
-  }, [arcRoutes, size.height, size.width]);
+  }, [size.height, size.width]);
 
   const selectCountry = (country: string) => {
     if (Date.now() < suppressSelectionUntilRef.current) return;

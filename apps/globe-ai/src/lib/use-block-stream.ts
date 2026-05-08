@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const DEFAULT_TRACKALL_API_URL = "https://trackall.nightly.app/";
 const SOLANA_WS_PATH = "api/solana/ws";
@@ -51,7 +51,7 @@ type SolanaBlockMetaMessage = {
   type: "solana.blockMeta";
 };
 
-type SolanaTransactionMessage = {
+export type SolanaTransactionMessage = {
   accountKeys: string[];
   failed: boolean;
   index: string;
@@ -207,13 +207,22 @@ function pruneTransactionTimestamps(timestamps: number[], now = Date.now()) {
   return timestamps.filter((timestamp) => timestamp >= windowStartedAt);
 }
 
-export function useBlockStream() {
+export type UseBlockStreamOptions = {
+  onTransaction?: (tx: SolanaTransactionMessage) => void;
+};
+
+export function useBlockStream(options?: UseBlockStreamOptions) {
   const [blocks, setBlocks] = useState<BlockEntry[]>([]);
   const [status, setStatus] = useState<BlockStreamStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<BlockStreamStatus>("idle");
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [transactionTimestamps, setTransactionTimestamps] = useState<number[]>([]);
+
+  const onTransactionRef = useRef<UseBlockStreamOptions["onTransaction"]>(undefined);
+  useLayoutEffect(() => {
+    onTransactionRef.current = options?.onTransaction;
+  }, [options?.onTransaction]);
 
   useEffect(() => {
     if (typeof WebSocket === "undefined") {
@@ -315,6 +324,7 @@ export function useBlockStream() {
           setTransactionTimestamps((current) =>
             pruneTransactionTimestamps([...current, transactionTimestampMs(message)]),
           );
+          onTransactionRef.current?.(message);
         }
       });
 
