@@ -381,23 +381,23 @@ type SampleWallet = {
 
 const SOLANA_SAMPLE_WALLETS: SampleWallet[] = [
 	{
-		label: "Jupiter treasury",
-		hint: "DEX aggregator",
-		address: "JUPNkE4hwETjJv8b6m4tKoNxFa2rDkRNWUfj1qZHnXq",
+		label: "Jupiter litterbox",
+		hint: "Jupiter wallet",
+		address: "6tZT9AUcQn4iHMH79YZEXSy55kDLQ4VbA3PMtfLVNsFX",
 		icon: GemIcon,
 		accent: "var(--chart-1)",
 	},
 	{
-		label: "Marinade whale",
-		hint: "Liquid staking",
-		address: "MarbmsVGz6dD7C7xJ8E2YfCXkRq1L2vG2fH9pYzAaQX",
+		label: "Kamino Actions",
+		hint: "Kamino wallet",
+		address: "2bhkQ6uVn32ddiG4Fe3DVbLsrExdb3ubaY6i1G4szEmq",
 		icon: WavesIcon,
 		accent: "var(--chart-3)",
 	},
 	{
-		label: "Kamino vault",
-		hint: "Lending position",
-		address: "Kvau9ZA1n3pEr8tQ4nM5gBz2Lh6jRwS9bC3dV1xY7uK",
+		label: "Wintermute",
+		hint: "Market maker",
+		address: "44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra",
 		icon: LandmarkIcon,
 		accent: "var(--chart-5)",
 	},
