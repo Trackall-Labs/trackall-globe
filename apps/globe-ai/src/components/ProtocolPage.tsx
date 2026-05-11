@@ -26,6 +26,7 @@ import { Chart } from "@orbit/ui/patterns/charts";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@orbit/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@orbit/ui/table";
 import { Tabs, TabsList, TabsTab } from "@orbit/ui/tabs";
+import { toastManager } from "@orbit/ui/toast";
 import { nameToNetworkId } from "@/lib/networks";
 import { getPortfolioAddressPath } from "@/lib/protocol-route";
 import { formatProtocolLocation } from "@/lib/protocols";
@@ -228,9 +229,9 @@ function csvCell(value: number | string | null) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
-function exportWalletRows(protocol: Protocol, wallets: TrackallTopWallet[], asOfRunId: number | null) {
+function exportWalletRows(protocol: Protocol, wallets: TrackallTopWallet[]) {
   const rows = [
-    ["rank", "address", "totalUsd", "positionCount", "capturedAt", "platformId", "asOfRunId"],
+    ["rank", "address", "totalUsd", "positionCount", "capturedAt", "platformId"],
     ...wallets.map((wallet) => [
       String(wallet.rank),
       wallet.address,
@@ -238,7 +239,6 @@ function exportWalletRows(protocol: Protocol, wallets: TrackallTopWallet[], asOf
       String(wallet.positionCount),
       wallet.capturedAt,
       protocol.id,
-      asOfRunId == null ? "" : String(asOfRunId),
     ]),
   ];
   const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
@@ -251,6 +251,24 @@ function exportWalletRows(protocol: Protocol, wallets: TrackallTopWallet[], asOf
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function copyWalletToClipboard(address: string) {
+  if (typeof navigator === "undefined" || !navigator.clipboard) return;
+  navigator.clipboard
+    .writeText(address)
+    .then(() => {
+      toastManager.add({
+        id: `wallet-clipboard-${Date.now()}`,
+        title: "Wallet copied",
+        description: shortWallet(address),
+        type: "info",
+        timeout: 2500,
+      });
+    })
+    .catch(() => {
+      // Clipboard failures do not need persistent UI feedback.
+    });
 }
 
 function chartPointLabel(timestamp: string) {
@@ -951,7 +969,7 @@ export function ProtocolPage({
               size="sm"
               className="shrink-0"
               disabled={sortedWallets.length === 0}
-              onClick={() => exportWalletRows(protocol, sortedWallets, walletsState.asOfRunId)}
+              onClick={() => exportWalletRows(protocol, sortedWallets)}
             >
               <DownloadIcon />
               Export
@@ -1088,9 +1106,9 @@ export function ProtocolPage({
                               </a>
                               <button
                                 type="button"
-                                onClick={() => void navigator.clipboard?.writeText(wallet.address)}
-                                aria-label="Copy wallet"
-                                className="text-muted-foreground/60 transition-colors hover:text-foreground"
+                                onClick={() => copyWalletToClipboard(wallet.address)}
+                                aria-label={`Copy ${shortWallet(wallet.address)} wallet address`}
+                                className="cursor-pointer text-muted-foreground/60 transition-colors hover:text-foreground"
                               >
                                 <CopyIcon className="size-3" />
                               </button>

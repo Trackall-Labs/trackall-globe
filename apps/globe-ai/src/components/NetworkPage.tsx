@@ -1367,10 +1367,26 @@ function sortSolanaWallets(wallets: TrackallAggregateTopWallet[], key: SolanaWal
   });
 }
 
-function exportSolanaWalletRows(wallets: TrackallAggregateTopWallet[], asOfRunId: number | null) {
-  const csvCell = (value: number | string | null) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+function csvCell(value: number | string | null) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: (number | string | null)[][]) {
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportSolanaWalletRows(wallets: TrackallAggregateTopWallet[]) {
   const rows = [
-    ["rank", "address", "totalUsd", "positionCount", "protocolCount", "capturedAt", "asOfRunId"],
+    ["rank", "address", "totalUsd", "positionCount", "protocolCount", "capturedAt"],
     ...wallets.map((wallet) => [
       String(wallet.rank),
       wallet.address,
@@ -1378,19 +1394,45 @@ function exportSolanaWalletRows(wallets: TrackallAggregateTopWallet[], asOfRunId
       String(wallet.positionCount),
       String(wallet.protocolCount),
       wallet.capturedAt,
-      asOfRunId == null ? "" : String(asOfRunId),
     ]),
   ];
-  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "solana-top-wallets.csv";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv("solana-top-wallets.csv", rows);
+}
+
+function exportNetworkWalletRows(network: Network, wallets: ProtocolUserRow[]) {
+  const rows = [
+    [
+      "rank",
+      "wallet",
+      "network",
+      "type",
+      "risk",
+      "activity",
+      "depositedTvl",
+      "volume30d",
+      "netFlow",
+      "pnl",
+      "protocolShare",
+      "activePositions",
+      "lastActiveHours",
+    ],
+    ...wallets.map((wallet, index) => [
+      String(index + 1),
+      wallet.wallet,
+      wallet.network,
+      wallet.type,
+      wallet.risk,
+      wallet.activity,
+      String(wallet.depositedTvl),
+      String(wallet.volume30d),
+      String(wallet.netFlow),
+      String(wallet.pnl),
+      String(wallet.protocolShare),
+      String(wallet.activePositions),
+      String(wallet.lastActiveHours),
+    ]),
+  ];
+  downloadCsv(`${network.id}-top-wallets.csv`, rows);
 }
 
 function SolanaWalletsTable({ onOpenWallet }: { onOpenWallet: (address: string) => void }) {
@@ -1498,7 +1540,7 @@ function SolanaWalletsTable({ onOpenWallet }: { onOpenWallet: (address: string) 
           size="sm"
           className="shrink-0"
           disabled={sortedWallets.length === 0}
-          onClick={() => exportSolanaWalletRows(sortedWallets, asOfRunId)}
+          onClick={() => exportSolanaWalletRows(sortedWallets)}
         >
           <DownloadIcon />
           Export
@@ -2014,7 +2056,14 @@ export function NetworkPage({
             <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
               Top wallets
             </div>
-            <Button type="button" variant="outline" size="sm" className="shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={sortedWallets.length === 0}
+              onClick={() => exportNetworkWalletRows(network, sortedWallets)}
+            >
               <DownloadIcon />
               Export
             </Button>
