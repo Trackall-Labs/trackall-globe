@@ -29,6 +29,7 @@ import { Tabs, TabsList, TabsTab } from "@orbit/ui/tabs";
 import { nameToNetworkId } from "@/lib/networks";
 import { getPortfolioAddressPath } from "@/lib/protocol-route";
 import { formatProtocolLocation } from "@/lib/protocols";
+import { seriesChange } from "@/lib/series-change";
 import {
   fetchSolanaTopPortfolioWallets,
   type TrackallSolanaPlatformMetrics,
@@ -320,14 +321,26 @@ function buildProtocolDetail(protocol: Protocol, metrics: TrackallSolanaPlatform
         label: "Active Users",
         value: protocol.activeUsers ?? null,
         format: "number",
-        change24h: null,
+        change24h: seriesChange(
+          (metrics?.usersPlot ?? []).map((point) => ({
+            timestamp: point.timestamp,
+            value: point.activeUsers,
+          })),
+          1,
+        ),
       },
       {
         key: "transactions",
         label: "Transactions",
         value: metrics?.transactionCount ?? null,
         format: "number",
-        change24h: null,
+        change24h: seriesChange(
+          (metrics?.transactionsPlot ?? []).map((point) => ({
+            timestamp: point.timestamp,
+            value: point.transactionCount,
+          })),
+          1,
+        ),
       },
     ],
   };
@@ -913,11 +926,6 @@ export function ProtocolPage({
               <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.25em]">
                 Wallets
               </div>
-              {walletsState.asOfRunId != null ? (
-                <Badge variant="outline" className="font-mono text-[10px]">
-                  Run {walletsState.asOfRunId}
-                </Badge>
-              ) : null}
             </div>
             <Button
               type="button"
