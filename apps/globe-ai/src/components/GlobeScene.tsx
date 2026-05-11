@@ -66,7 +66,7 @@ type CameraTarget = {
 const CAMERA_TWEEN_MS = 700;
 const FAN_AUTO_START_ZOOM = 1.0;
 const MAX_FAN_RADIUS = 56;
-const MAX_DEVICE_PIXEL_RATIO = 1.5;
+const MAX_DEVICE_PIXEL_RATIO = 1;
 const GOLDEN_ANGLE_RAD = Math.PI * (3 - Math.sqrt(5));
 
 function computeFanProgress(zoom: number) {
@@ -426,6 +426,15 @@ type ActiveArc = {
   waypoints: [number, number, number][];
 };
 
+const ARC_POINT_COUNT = ARC_SEGMENTS + 1;
+const scratchProjectedX = new Float32Array(ARC_POINT_COUNT);
+const scratchProjectedY = new Float32Array(ARC_POINT_COUNT);
+const scratchProjectedVisible = new Uint8Array(ARC_POINT_COUNT);
+const scratchCumulative = new Float32Array(ARC_POINT_COUNT);
+const scratchRunStart = new Int32Array(ARC_POINT_COUNT);
+const scratchRunEnd = new Int32Array(ARC_POINT_COUNT);
+const scratchExpiredKeys: string[] = [];
+
 export function GlobeScene({
   active = true,
   protocols,
@@ -477,38 +486,35 @@ export function GlobeScene({
   }, [clusters, expandedClusterId]);
 
 
-  const protocolMarkers = useMemo<Marker[]>(
-    () =>
-      clusters.map((cluster, index) => ({
-        id: cluster.id,
-        location: [cluster.lat, cluster.lng],
-        size: 0,
-        color: readTheme().chart[index % CHART_TOKENS.length] ?? readTheme().muted,
-      })),
-    [clusters],
-  );
+  const protocolMarkers = useMemo<Marker[]>(() => {
+    const theme = readTheme();
+    return clusters.map((cluster, index) => ({
+      id: cluster.id,
+      location: [cluster.lat, cluster.lng],
+      size: 0,
+      color: theme.chart[index % CHART_TOKENS.length] ?? theme.muted,
+    }));
+  }, [clusters]);
 
-  const pinMarkers = useMemo<Marker[]>(
-    () =>
-      pins.map((pin) => ({
-        id: markerId("pin", pin.id),
-        location: [pin.lat, pin.lng],
-        size: 0.03,
-        color: readTheme().success,
-      })),
-    [pins],
-  );
+  const pinMarkers = useMemo<Marker[]>(() => {
+    const successColor = readTheme().success;
+    return pins.map((pin) => ({
+      id: markerId("pin", pin.id),
+      location: [pin.lat, pin.lng],
+      size: 0.03,
+      color: successColor,
+    }));
+  }, [pins]);
 
-  const pinTargetMarkers = useMemo<Marker[]>(
-    () =>
-      PIN_COUNTRY_TARGETS.map((target) => ({
-        id: markerId("target", target.country),
-        location: [target.lat, target.lng],
-        size: pinMode ? 0.028 : 0.001,
-        color: readTheme().warning,
-      })),
-    [pinMode],
-  );
+  const pinTargetMarkers = useMemo<Marker[]>(() => {
+    const warningColor = readTheme().warning;
+    return PIN_COUNTRY_TARGETS.map((target) => ({
+      id: markerId("target", target.country),
+      location: [target.lat, target.lng],
+      size: pinMode ? 0.028 : 0.001,
+      color: warningColor,
+    }));
+  }, [pinMode]);
 
   const markers = useMemo(
     () => [...protocolMarkers, ...pinMarkers, ...pinTargetMarkers],
@@ -616,15 +622,30 @@ export function GlobeScene({
     const container = containerRef.current;
     if (!container) return;
 
+    let pendingWidth = 0;
+    let pendingHeight = 0;
+    let debounceTimer: number | null = null;
+    const flush = () => {
+      debounceTimer = null;
+      setSize((current) =>
+        current.width === pendingWidth && current.height === pendingHeight
+          ? current
+          : { width: pendingWidth, height: pendingHeight },
+      );
+    };
+
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      setSize({
-        width: Math.max(1, Math.round(entry.contentRect.width)),
-        height: Math.max(1, Math.round(entry.contentRect.height)),
-      });
+      pendingWidth = Math.max(1, Math.round(entry.contentRect.width));
+      pendingHeight = Math.max(1, Math.round(entry.contentRect.height));
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(flush, 150);
     });
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -739,13 +760,13 @@ export function GlobeScene({
       arcsCtx.lineJoin = "round";
 
       const arcs = activeArcsRef.current;
-      const expired: string[] = [];
+      scratchExpiredKeys.length = 0;
 
       for (const [key, arc] of arcs) {
         const elapsed = now - arc.startedAt;
         const cycle = elapsed / arc.duration;
         if (cycle >= 1) {
-          expired.push(key);
+          scratchExpiredKeys.push(key);
           continue;
         }
         const fadeAlpha =
@@ -753,56 +774,45 @@ export function GlobeScene({
             ? 1
             : Math.max(0, 1 - (cycle - ARC_FADE_START) / (1 - ARC_FADE_START));
         const points = arc.waypoints;
-        const projected: { x: number; y: number; visible: boolean }[] = new Array(
-          points.length,
-        );
-        for (let i = 0; i < points.length; i++) {
+        const pointCount = points.length;
+        for (let i = 0; i < pointCount; i++) {
           const p = points[i]!;
           const xR = cosPhi * p[0] + sinPhi * p[2];
           const yR = sinPhi * sinT * p[0] + cosT * p[1] - cosPhi * sinT * p[2];
           const zR = -sinPhi * cosT * p[0] + sinT * p[1] + cosPhi * cosT * p[2];
-          const xCss =
+          scratchProjectedX[i] =
             (xR / aspect) * currentScale * (cssW / 2) + (offX * currentScale) / 2 + cssW / 2;
-          const yCss =
+          scratchProjectedY[i] =
             -yR * currentScale * (cssH / 2) + (offY * currentScale) / 2 + cssH / 2;
-          const visible = zR >= 0 || xR * xR + yR * yR >= 0.64;
-          projected[i] = { x: xCss, y: yCss, visible };
+          scratchProjectedVisible[i] = zR >= 0 || xR * xR + yR * yR >= 0.64 ? 1 : 0;
         }
 
-        const cumulative: number[] = new Array(points.length);
-        cumulative[0] = 0;
+        scratchCumulative[0] = 0;
         let totalLen = 0;
-        for (let i = 1; i < points.length; i++) {
-          const a = projected[i - 1]!;
-          const b = projected[i]!;
-          totalLen += Math.hypot(b.x - a.x, b.y - a.y);
-          cumulative[i] = totalLen;
+        for (let i = 1; i < pointCount; i++) {
+          const dx = scratchProjectedX[i]! - scratchProjectedX[i - 1]!;
+          const dy = scratchProjectedY[i]! - scratchProjectedY[i - 1]!;
+          totalLen += Math.hypot(dx, dy);
+          scratchCumulative[i] = totalLen;
         }
         if (totalLen < 1) continue;
 
-        const runs: {
-          startLen: number;
-          points: [number, number][];
-        }[] = [];
-        let current: { startLen: number; points: [number, number][] } | null = null;
-        for (let i = 0; i < projected.length; i++) {
-          const point = projected[i]!;
-          if (point.visible) {
-            if (!current) {
-              current = {
-                startLen: cumulative[i] ?? 0,
-                points: [[point.x, point.y]],
-              };
-            } else {
-              current.points.push([point.x, point.y]);
+        let runCount = 0;
+        let runOpen = false;
+        for (let i = 0; i < pointCount; i++) {
+          if (scratchProjectedVisible[i]) {
+            if (!runOpen) {
+              scratchRunStart[runCount] = i;
+              runOpen = true;
             }
-          } else if (current) {
-            runs.push(current);
-            current = null;
+            scratchRunEnd[runCount] = i;
+          } else if (runOpen) {
+            runCount++;
+            runOpen = false;
           }
         }
-        if (current) runs.push(current);
-        if (runs.length === 0) continue;
+        if (runOpen) runCount++;
+        if (runCount === 0) continue;
 
         const baseColor = tonePalette[arc.tone];
         const baseCss = rgbToCss(baseColor, ARC_BASE_ALPHA);
@@ -815,13 +825,13 @@ export function GlobeScene({
         arcsCtx.strokeStyle = baseCss;
         arcsCtx.shadowBlur = 0;
         arcsCtx.globalAlpha = fadeAlpha;
-        for (const run of runs) {
+        for (let r = 0; r < runCount; r++) {
+          const start = scratchRunStart[r]!;
+          const end = scratchRunEnd[r]!;
           arcsCtx.beginPath();
-          const first = run.points[0]!;
-          arcsCtx.moveTo(first[0], first[1]);
-          for (let j = 1; j < run.points.length; j++) {
-            const point = run.points[j]!;
-            arcsCtx.lineTo(point[0], point[1]);
+          arcsCtx.moveTo(scratchProjectedX[start]!, scratchProjectedY[start]!);
+          for (let j = start + 1; j <= end; j++) {
+            arcsCtx.lineTo(scratchProjectedX[j]!, scratchProjectedY[j]!);
           }
           arcsCtx.stroke();
         }
@@ -839,14 +849,14 @@ export function GlobeScene({
         const pulse = 0.42 + 0.44 * Math.sin(cycle * Math.PI);
         arcsCtx.globalAlpha = pulse * fadeAlpha;
 
-        for (const run of runs) {
-          arcsCtx.lineDashOffset = run.startLen + dashLen - cycle * traversal;
+        for (let r = 0; r < runCount; r++) {
+          const start = scratchRunStart[r]!;
+          const end = scratchRunEnd[r]!;
+          arcsCtx.lineDashOffset = scratchCumulative[start]! + dashLen - cycle * traversal;
           arcsCtx.beginPath();
-          const first = run.points[0]!;
-          arcsCtx.moveTo(first[0], first[1]);
-          for (let j = 1; j < run.points.length; j++) {
-            const point = run.points[j]!;
-            arcsCtx.lineTo(point[0], point[1]);
+          arcsCtx.moveTo(scratchProjectedX[start]!, scratchProjectedY[start]!);
+          for (let j = start + 1; j <= end; j++) {
+            arcsCtx.lineTo(scratchProjectedX[j]!, scratchProjectedY[j]!);
           }
           arcsCtx.stroke();
         }
@@ -854,8 +864,8 @@ export function GlobeScene({
         arcsCtx.shadowBlur = 0;
       }
 
-      for (const key of expired) {
-        arcs.delete(key);
+      for (let i = 0; i < scratchExpiredKeys.length; i++) {
+        arcs.delete(scratchExpiredKeys[i]!);
       }
     };
 
@@ -867,7 +877,7 @@ export function GlobeScene({
       theta: thetaRef.current,
       dark: 1,
       diffuse: 2.4,
-      mapSamples: 14000,
+      mapSamples: 8000,
       mapBrightness: 4.8,
       mapBaseBrightness: 0.03,
       baseColor: [0.16, 0.17, 0.18],

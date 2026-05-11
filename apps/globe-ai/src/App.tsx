@@ -430,6 +430,23 @@ function useLiveGlobeActivity(
     activityToastIdsRef.current.clear();
     burstWindowsRef.current.clear();
   }, [enabled]);
+
+  useEffect(() => {
+    const sweep = () => {
+      const now = Date.now();
+      const pruneOlderThan = (map: Map<string, number>, maxAgeMs: number) => {
+        const cutoff = now - maxAgeMs;
+        for (const [key, timestamp] of map) {
+          if (timestamp < cutoff) map.delete(key);
+        }
+      };
+      pruneOlderThan(crossProgramCooldownRef.current, CROSS_PROGRAM_COOLDOWN_MS);
+      pruneOlderThan(failureCooldownRef.current, FAILURE_COOLDOWN_MS);
+      pruneOlderThan(burstCooldownRef.current, PROTOCOL_BURST_COOLDOWN_MS);
+    };
+    const interval = window.setInterval(sweep, 10_000);
+    return () => window.clearInterval(interval);
+  }, []);
 }
 
 function useCompactLayout() {
