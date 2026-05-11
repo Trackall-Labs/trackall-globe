@@ -586,6 +586,7 @@ function ActivityChartCard({
               strokeWidth={1.5}
               fill={`url(#${gradientId})`}
               connectNulls
+              isAnimationActive={false}
             />
           </AreaChart>
         </Chart.ChartContainer>

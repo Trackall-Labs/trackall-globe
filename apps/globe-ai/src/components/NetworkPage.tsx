@@ -386,7 +386,10 @@ function StatCard({
         <span className="text-xs text-muted-foreground">vs prev 24h</span>
       </div>
       <Sparkline
-        values={chart.slice(-14).map((point) => Number(point[sparkKey])).filter(Number.isFinite)}
+        values={chart
+          .slice(-14)
+          .map((point) => point[sparkKey])
+          .filter((value): value is number => typeof value === "number" && Number.isFinite(value))}
         positive={positive}
         className="mt-3 h-10 w-full"
       />
@@ -591,8 +594,7 @@ function ActivityChartCard({
               stroke={item.color}
               strokeWidth={1.5}
               fill={`url(#${gradientId}-${item.key})`}
-              animationDuration={250}
-              animationEasing="ease-out"
+              isAnimationActive={false}
             />
           ))}
         </AreaChart>
@@ -1159,9 +1161,9 @@ function buildSolanaNetworkDetail(
   metrics: TrackallSolanaPlatformMetricsResponse | null,
   protocols: Protocol[],
   recentBlocks: NetworkBlockRow[],
+  chart: DisplayNetworkChartPoint[],
+  transactionPlot: { timestamp: string; transactionCount: number }[],
 ): DisplayNetworkDetail {
-  const transactionPlot = buildSolanaTransactionPlot(metrics);
-  const chart = buildSolanaChart(metrics, transactionPlot);
   const usersSeries = (metrics?.chain.usersPlot ?? []).map((point) => ({
     timestamp: point.timestamp,
     value: point.activeUsers,
@@ -1625,17 +1627,27 @@ export function NetworkPage({
 
   const mockDetail = useMemo(() => (network ? buildNetworkDetailMock(network, protocols) : null), [network, protocols]);
   const isSolanaNetwork = network?.id === "solana";
-  const detail = useMemo<DisplayNetworkDetail | null>(() => {
-    if (!network || !mockDetail) return null;
-    if (isSolanaNetwork) {
-      return buildSolanaNetworkDetail(solanaMetrics, protocols, mockDetail.recentBlocks);
-    }
-    return mockDetail;
-  }, [isSolanaNetwork, mockDetail, network, protocols, solanaMetrics]);
-  const solanaChart = useMemo(
-    () => (isSolanaNetwork ? buildSolanaChart(solanaMetrics, buildSolanaTransactionPlot(solanaMetrics)) : null),
+  const solanaTransactionPlot = useMemo(
+    () => (isSolanaNetwork ? buildSolanaTransactionPlot(solanaMetrics) : null),
     [isSolanaNetwork, solanaMetrics],
   );
+  const solanaChart = useMemo(
+    () => (isSolanaNetwork && solanaTransactionPlot ? buildSolanaChart(solanaMetrics, solanaTransactionPlot) : null),
+    [isSolanaNetwork, solanaMetrics, solanaTransactionPlot],
+  );
+  const detail = useMemo<DisplayNetworkDetail | null>(() => {
+    if (!network || !mockDetail) return null;
+    if (isSolanaNetwork && solanaChart && solanaTransactionPlot) {
+      return buildSolanaNetworkDetail(
+        solanaMetrics,
+        protocols,
+        mockDetail.recentBlocks,
+        solanaChart,
+        solanaTransactionPlot,
+      );
+    }
+    return mockDetail;
+  }, [isSolanaNetwork, mockDetail, network, protocols, solanaChart, solanaMetrics, solanaTransactionPlot]);
   const chartPoints = useMemo(() => {
     const source = isSolanaNetwork ? solanaChart : detail?.chart;
     if (!source) return [];
