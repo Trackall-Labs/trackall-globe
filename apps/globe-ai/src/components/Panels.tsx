@@ -5,7 +5,7 @@ import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@orbit/ui/tooltip";
-import { clamp, fmtCompact, fmtUsd } from "@/lib/format";
+import { fmtCompact, fmtUsd } from "@/lib/format";
 import { type Network } from "@/lib/networks";
 import type { TrackallSolanaChainMetrics } from "@/lib/trackall-api";
 import type { BlockEntry, BlockStreamStatus } from "@/lib/use-block-stream";
@@ -38,17 +38,74 @@ function latencyColor(value: number | null) {
   return "latency-warn";
 }
 
-function lagTone(value: number | null) {
-  if (value == null) return "pending";
-  if (value < 1_000) return "fresh";
-  if (value < 3_000) return "lagging";
-  return "stale";
-}
-
 function formatLag(value: number | null) {
   if (value == null) return "Pending";
   if (value < 1_000) return `${Math.round(value)} ms`;
   return `${(value / 1_000).toFixed(1)} s`;
+}
+
+const BLOCK_BAR_MIN_PX = 18;
+const BLOCK_BAR_MAX_PX = 46;
+const BLOCK_INTERVAL_MIN_MS = 200;
+const BLOCK_INTERVAL_MAX_MS = 1_200;
+const CONFIRMATION_DEPTH = 32;
+
+type LiveBlockState = "processed" | "finalized" | "confirmed";
+
+function liveBlockState(ageFromNewest: number): LiveBlockState {
+  if (ageFromNewest === 0) return "processed";
+  if (ageFromNewest < CONFIRMATION_DEPTH) return "finalized";
+  return "confirmed";
+}
+
+function liveBlockSlot(block: BlockEntry) {
+  const slot = Number(block.slot);
+  return Number.isFinite(slot) ? slot : null;
+}
+
+function compareLiveBlocksAscending(a: BlockEntry, b: BlockEntry) {
+  const aSlot = liveBlockSlot(a);
+  const bSlot = liveBlockSlot(b);
+  if (aSlot != null && bSlot != null && aSlot !== bSlot) return aSlot - bSlot;
+  const aReceivedAt = Date.parse(a.receivedAt);
+  const bReceivedAt = Date.parse(b.receivedAt);
+  return (Number.isFinite(aReceivedAt) ? aReceivedAt : 0) - (Number.isFinite(bReceivedAt) ? bReceivedAt : 0);
+}
+
+function blockIntervalsMs(blocks: BlockEntry[]) {
+  const intervals: (number | null)[] = [];
+  for (let i = 0; i < blocks.length; i += 1) {
+    if (i === 0) {
+      intervals.push(null);
+      continue;
+    }
+    const current = Date.parse(blocks[i]!.receivedAt);
+    const previous = Date.parse(blocks[i - 1]!.receivedAt);
+    if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+      intervals.push(null);
+      continue;
+    }
+    intervals.push(Math.max(0, current - previous));
+  }
+  return intervals;
+}
+
+function averageIntervalMs(intervals: (number | null)[]) {
+  let total = 0;
+  let count = 0;
+  for (const value of intervals) {
+    if (value == null) continue;
+    total += value;
+    count += 1;
+  }
+  return count === 0 ? null : Math.round(total / count);
+}
+
+function intervalToHeightPx(intervalMs: number | null, fallbackMs: number) {
+  const value = intervalMs ?? fallbackMs;
+  const clamped = Math.max(BLOCK_INTERVAL_MIN_MS, Math.min(BLOCK_INTERVAL_MAX_MS, value));
+  const ratio = (clamped - BLOCK_INTERVAL_MIN_MS) / (BLOCK_INTERVAL_MAX_MS - BLOCK_INTERVAL_MIN_MS);
+  return `${BLOCK_BAR_MIN_PX + ratio * (BLOCK_BAR_MAX_PX - BLOCK_BAR_MIN_PX)}px`;
 }
 
 function formatMs(value: number | null) {
@@ -117,7 +174,12 @@ function lastBlockDurationMs(blocks: BlockEntry[]) {
 export function BlockHistoryPanel({ blocks, compact, streamError, streamStatus }: BlockPanelProps) {
   const latest = blocks[0];
   const [hoveredBlock, setHoveredBlock] = useState<BlockPreview | null>(null);
-  const visible = blocks.slice(0, compact ? 24 : 32).reverse();
+  const { ascending, intervals, fallbackIntervalMs } = useMemo(() => {
+    const sorted = [...blocks].sort(compareLiveBlocksAscending).slice(-44);
+    const intervalsMs = blockIntervalsMs(sorted);
+    const avg = averageIntervalMs(intervalsMs);
+    return { ascending: sorted, intervals: intervalsMs, fallbackIntervalMs: avg ?? 500 };
+  }, [blocks]);
   const lastDurationMs = useMemo(() => lastBlockDurationMs(blocks), [blocks]);
 
   return (
@@ -129,30 +191,37 @@ export function BlockHistoryPanel({ blocks, compact, streamError, streamStatus }
         </div>
         <span className="panel-kpi tabular-nums">{latest ? blockTitle(latest) : "..."}</span>
       </div>
-      {visible.length > 0 ? (
+      {ascending.length > 0 ? (
         <div
           className="block-bars"
           aria-label="Recent Solana blocks"
           onPointerLeave={() => setHoveredBlock(null)}
         >
-          {visible.map((block) => (
-            <BlockCandle
-              key={block.id}
-              block={block}
-              onBlur={() => setHoveredBlock(null)}
-              onPreview={(event) => {
-                const candleRect = event.currentTarget.getBoundingClientRect();
-                setHoveredBlock({
-                  block,
-                  x: Math.min(
-                    Math.max(candleRect.left + candleRect.width / 2, 88),
-                    window.innerWidth - 88,
-                  ),
-                  y: candleRect.top,
-                });
-              }}
-            />
-          ))}
+          {ascending.map((block, ascendingIndex) => {
+            const ageFromNewest = ascending.length - 1 - ascendingIndex;
+            const intervalMs = intervals[ascendingIndex] ?? null;
+            return (
+              <BlockCandle
+                key={block.id}
+                block={block}
+                state={liveBlockState(ageFromNewest)}
+                heightPx={intervalToHeightPx(intervalMs, fallbackIntervalMs)}
+                intervalMs={intervalMs}
+                onBlur={() => setHoveredBlock(null)}
+                onPreview={(event) => {
+                  const candleRect = event.currentTarget.getBoundingClientRect();
+                  setHoveredBlock({
+                    block,
+                    x: Math.min(
+                      Math.max(candleRect.left + candleRect.width / 2, 88),
+                      window.innerWidth - 88,
+                    ),
+                    y: candleRect.top,
+                  });
+                }}
+              />
+            );
+          })}
         </div>
       ) : (
         <div className="block-empty-state" role="status">
@@ -172,25 +241,30 @@ export function BlockHistoryPanel({ blocks, compact, streamError, streamStatus }
 
 function BlockCandle({
   block,
+  state,
+  heightPx,
+  intervalMs,
   onBlur,
   onPreview,
 }: {
   block: BlockEntry;
+  state: LiveBlockState;
+  heightPx: string;
+  intervalMs: number | null;
   onBlur: () => void;
   onPreview: (event: React.FocusEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => void;
 }) {
-  const lag = block.receivedLagMs ?? 2_000;
-  const height = `${Math.round(clamp(46 - lag / 100, 18, 46))}px`;
-  const tone = lagTone(block.receivedLagMs);
+  const label = block.blockHeight ? `Block ${block.blockHeight}` : `Slot ${block.slot}`;
+  const intervalLabel = intervalMs == null ? "first block" : `+${intervalMs}ms`;
 
   return (
     <button
-      aria-label={`${block.blockHeight ? `Block ${block.blockHeight}` : `Slot ${block.slot}`}, received ${formatLag(block.receivedLagMs)}`}
-      className={`block-bar block-bar-${tone}`}
+      aria-label={`${label}, ${state}, ${intervalLabel}`}
+      className={`block-bar block-bar-${state}`}
       onBlur={onBlur}
       onFocus={onPreview}
       onPointerEnter={onPreview}
-      style={{ height }}
+      style={{ height: heightPx }}
       type="button"
     />
   );
