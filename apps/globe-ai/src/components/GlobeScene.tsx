@@ -1,6 +1,7 @@
 import createGlobe, { type COBEOptions, type Marker } from "cobe";
 import {
   Fragment,
+  memo,
   type Ref,
   useEffect,
   useImperativeHandle,
@@ -385,6 +386,12 @@ function readTheme(): CobeTheme {
   };
 }
 
+let cachedTheme: CobeTheme | null = null;
+function getTheme(): CobeTheme {
+  if (!cachedTheme) cachedTheme = readTheme();
+  return cachedTheme;
+}
+
 function markerAnchorStyle(id: string): MarkerStyle {
   return {
     positionAnchor: `--cobe-${id}`,
@@ -435,7 +442,7 @@ const scratchRunStart = new Int32Array(ARC_POINT_COUNT);
 const scratchRunEnd = new Int32Array(ARC_POINT_COUNT);
 const scratchExpiredKeys: string[] = [];
 
-export function GlobeScene({
+function GlobeSceneComponent({
   active = true,
   protocols,
   pins,
@@ -487,7 +494,7 @@ export function GlobeScene({
 
 
   const protocolMarkers = useMemo<Marker[]>(() => {
-    const theme = readTheme();
+    const theme = getTheme();
     return clusters.map((cluster, index) => ({
       id: cluster.id,
       location: [cluster.lat, cluster.lng],
@@ -497,7 +504,7 @@ export function GlobeScene({
   }, [clusters]);
 
   const pinMarkers = useMemo<Marker[]>(() => {
-    const successColor = readTheme().success;
+    const successColor = getTheme().success;
     return pins.map((pin) => ({
       id: markerId("pin", pin.id),
       location: [pin.lat, pin.lng],
@@ -507,7 +514,7 @@ export function GlobeScene({
   }, [pins]);
 
   const pinTargetMarkers = useMemo<Marker[]>(() => {
-    const warningColor = readTheme().warning;
+    const warningColor = getTheme().warning;
     return PIN_COUNTRY_TARGETS.map((target) => ({
       id: markerId("target", target.country),
       location: [target.lat, target.lng],
@@ -583,6 +590,7 @@ export function GlobeScene({
     ref,
     () => ({
       spawnArcsForTransaction(matchedProgramIds) {
+        if (!activeRef.current) return;
         if (!matchedProgramIds || matchedProgramIds.length === 0) return;
         const programIdToProtocol = programIdToProtocolRef.current;
         const txCounts = txCountsRef.current;
@@ -604,6 +612,10 @@ export function GlobeScene({
 
   useEffect(() => {
     activeRef.current = active;
+    if (!active) {
+      txCountsRef.current.clear();
+      activeArcsRef.current.clear();
+    }
   }, [active]);
 
   useEffect(() => {
@@ -652,7 +664,7 @@ export function GlobeScene({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const theme = readTheme();
+    const theme = getTheme();
     const dpr = getCanvasDpr();
     const width = Math.round(size.width * dpr);
     const height = Math.round(size.height * dpr);
@@ -1412,3 +1424,5 @@ export function GlobeScene({
     </section>
   );
 }
+
+export const GlobeScene = memo(GlobeSceneComponent);
