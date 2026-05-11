@@ -139,6 +139,7 @@ const WALLET_PLOT_BUCKETS: {
 	{ label: "4H", value: "4h" },
 	{ label: "1D", value: "1d" },
 ];
+const DEFAULT_WALLET_PLOT_BUCKET: TrackallSolanaPortfolioPlotBucket = "4h";
 
 function assetPrimarySymbol(value: string) {
 	return value.split("—")[0]?.trim().split(/\s+/).pop() ?? value;
@@ -1883,7 +1884,7 @@ export function PortfolioPage({
 		string | null
 	>(null);
 	const [plotBucket, setPlotBucket] =
-		useState<TrackallSolanaPortfolioPlotBucket>("1h");
+		useState<TrackallSolanaPortfolioPlotBucket>(DEFAULT_WALLET_PLOT_BUCKET);
 	const loadWalletAddress = pendingWalletAddress ?? walletAddress;
 	const shouldLoadSolanaWallet = Boolean(
 		loadWalletAddress &&
@@ -1899,7 +1900,7 @@ export function PortfolioPage({
 		useState<WalletPlotState | null>(() => {
 			return walletAddress
 				? (REMOTE_PORTFOLIO_PLOT_STATE_BY_KEY.get(
-						walletPlotCacheKey(walletAddress, "1h"),
+						walletPlotCacheKey(walletAddress, DEFAULT_WALLET_PLOT_BUCKET),
 					) ?? null)
 				: null;
 		});
