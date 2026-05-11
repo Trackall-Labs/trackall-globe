@@ -1169,12 +1169,46 @@ function NetWorthAndAllocation({
 function PortfolioStripCard({
 	children,
 	logo,
+	onClick,
+	selected,
+	ariaPressed,
+	ariaLabel,
 }: {
 	children: ReactNode;
 	logo: ReactNode;
+	onClick?: () => void;
+	selected?: boolean;
+	ariaPressed?: boolean;
+	ariaLabel?: string;
 }) {
+	const className =
+		"group relative flex h-[84px] min-w-[200px] shrink-0 flex-row items-center gap-3 overflow-hidden border-border/60 bg-background/40 px-3 text-left shadow-[0_14px_34px_-28px_rgb(0_0_0/0.85)] backdrop-blur-xl transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out will-change-transform hover:border-border hover:bg-background/52 hover:shadow-[0_16px_40px_-30px_rgb(0_0_0/0.92)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 dark:before:transition-[box-shadow] dark:before:duration-200" +
+		(selected
+			? " -translate-y-0.5 border-border bg-background/55 shadow-[inset_0_-1px_0_0_rgb(255_255_255/0.10),0_22px_45px_-22px_rgb(255_255_255/0.20)] dark:before:shadow-none"
+			: "") +
+		(onClick ? " cursor-pointer" : "");
+
+	if (onClick) {
+		return (
+			<Card
+				className={className}
+				render={
+					<button
+						type="button"
+						onClick={onClick}
+						aria-pressed={ariaPressed}
+						aria-label={ariaLabel}
+					/>
+				}
+			>
+				<div className="relative shrink-0">{logo}</div>
+				<div className="relative min-w-0">{children}</div>
+			</Card>
+		);
+	}
+
 	return (
-		<Card className="group relative flex h-[84px] min-w-[200px] shrink-0 flex-row items-center gap-3 overflow-hidden border-border/60 bg-background/40 px-3 shadow-[0_14px_34px_-28px_rgb(0_0_0/0.85)] backdrop-blur-xl transition-[background-color,border-color,box-shadow] hover:border-border hover:bg-background/52 hover:shadow-[0_16px_40px_-30px_rgb(0_0_0/0.92)]">
+		<Card className={className}>
 			<div className="relative shrink-0">{logo}</div>
 			<div className="relative min-w-0">{children}</div>
 		</Card>
@@ -1184,13 +1218,22 @@ function PortfolioStripCard({
 function ProtocolStripRow({
 	networkSymbol,
 	portfolio,
+	selectedProtocolIds,
+	onToggleProtocol,
+	onClearSelection,
 }: {
 	networkSymbol: string;
 	portfolio: PortfolioMock;
+	selectedProtocolIds: Set<string>;
+	onToggleProtocol: (protocolId: string) => void;
+	onClearSelection: () => void;
 }) {
+	const hasSelection = selectedProtocolIds.size > 0;
 	return (
 		<div className="scrollbar-none -mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1">
 			<PortfolioStripCard
+				onClick={hasSelection ? onClearSelection : undefined}
+				ariaLabel="Show all positions"
 				logo={
 					<TokenLogo
 						symbol={networkSymbol}
@@ -1206,41 +1249,47 @@ function ProtocolStripRow({
 					{formatUsdCompact(portfolio.holdingsTotal)}
 				</div>
 			</PortfolioStripCard>
-			{portfolio.defiPositions.map((p) => (
-				<PortfolioStripCard
-					key={p.protocolId}
-					logo={
-						<ProtocolLogo
-							color={
-								portfolio.defiAllocation.find(
-									(a) => a.protocolId === p.protocolId,
-								)?.color
-							}
-							protocolId={p.protocolId}
-							protocolName={p.protocolName}
-							logoUrl={p.protocolLogo}
-							shape="square"
-							className="size-11 rounded-xl"
-						/>
-					}
-				>
-					<div className="flex items-center gap-1 truncate font-mono text-[11px] text-foreground uppercase tracking-[0.18em]">
-						<span className="truncate">{p.protocolName}</span>
-						<a
-							href={p.protocolHref}
-							target="_blank"
-							rel="noreferrer"
-							className="text-muted-foreground opacity-70 transition-[color,opacity,transform] hover:text-foreground group-hover:opacity-100"
-							onClick={(e) => e.stopPropagation()}
-						>
-							<ExternalLinkIcon className="size-3" />
-						</a>
-					</div>
-					<div className="font-mono text-[11px] text-muted-foreground tabular-nums">
-						{formatUsdCompact(p.totalValue)}
-					</div>
-				</PortfolioStripCard>
-			))}
+			{portfolio.defiPositions.map((p) => {
+				const isSelected = selectedProtocolIds.has(p.protocolId);
+				return (
+					<PortfolioStripCard
+						key={p.protocolId}
+						onClick={() => onToggleProtocol(p.protocolId)}
+						selected={isSelected}
+						ariaPressed={isSelected}
+						logo={
+							<ProtocolLogo
+								color={
+									portfolio.defiAllocation.find(
+										(a) => a.protocolId === p.protocolId,
+									)?.color
+								}
+								protocolId={p.protocolId}
+								protocolName={p.protocolName}
+								logoUrl={p.protocolLogo}
+								shape="square"
+								className="size-11 rounded-xl"
+							/>
+						}
+					>
+						<div className="flex items-center gap-1 truncate font-mono text-[11px] text-foreground uppercase tracking-[0.18em]">
+							<span className="truncate">{p.protocolName}</span>
+							<a
+								href={p.protocolHref}
+								target="_blank"
+								rel="noreferrer"
+								className="text-muted-foreground opacity-70 transition-[color,opacity,transform] hover:text-foreground group-hover:opacity-100"
+								onClick={(e) => e.stopPropagation()}
+							>
+								<ExternalLinkIcon className="size-3" />
+							</a>
+						</div>
+						<div className="font-mono text-[11px] text-muted-foreground tabular-nums">
+							{formatUsdCompact(p.totalValue)}
+						</div>
+					</PortfolioStripCard>
+				);
+			})}
 		</div>
 	);
 }
@@ -1885,6 +1934,9 @@ export function PortfolioPage({
 	>(null);
 	const [plotBucket, setPlotBucket] =
 		useState<TrackallSolanaPortfolioPlotBucket>(DEFAULT_WALLET_PLOT_BUCKET);
+	const [selectedProtocolIds, setSelectedProtocolIds] = useState<Set<string>>(
+		() => new Set(),
+	);
 	const loadWalletAddress = pendingWalletAddress ?? walletAddress;
 	const shouldLoadSolanaWallet = Boolean(
 		loadWalletAddress &&
@@ -1967,6 +2019,20 @@ export function PortfolioPage({
 		shouldLoadSolanaWallet,
 		walletAddress,
 	]);
+	const hasProtocolSelection = selectedProtocolIds.size > 0;
+	const filteredDefiPositions = useMemo(() => {
+		if (!hasProtocolSelection) return portfolio.defiPositions;
+		return portfolio.defiPositions.filter((p) =>
+			selectedProtocolIds.has(p.protocolId),
+		);
+	}, [hasProtocolSelection, portfolio.defiPositions, selectedProtocolIds]);
+	const positionsPortfolio = useMemo(
+		() =>
+			hasProtocolSelection
+				? { ...portfolio, defiPositions: filteredDefiPositions }
+				: portfolio,
+		[filteredDefiPositions, hasProtocolSelection, portfolio],
+	);
 	const portfolioStatus =
 		remotePortfolio?.address === walletAddress ? remotePortfolio : null;
 	const pendingPortfolioStatus =
@@ -1982,6 +2048,21 @@ export function PortfolioPage({
 	const handleSubmit = useCallback((next: string) => {
 		setPendingWalletAddress(next);
 	}, []);
+	const toggleProtocolSelection = useCallback((protocolId: string) => {
+		setSelectedProtocolIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(protocolId)) next.delete(protocolId);
+			else next.add(protocolId);
+			return next;
+		});
+	}, []);
+	const clearProtocolSelection = useCallback(() => {
+		setSelectedProtocolIds((prev) => (prev.size === 0 ? prev : new Set()));
+	}, []);
+
+	useEffect(() => {
+		setSelectedProtocolIds((prev) => (prev.size === 0 ? prev : new Set()));
+	}, [loadWalletAddress]);
 
 	useEffect(() => {
 		if (!loadWalletAddress || !shouldLoadSolanaWallet) {
@@ -2404,14 +2485,19 @@ export function PortfolioPage({
 						<ProtocolStripRow
 							networkSymbol={networkSymbol}
 							portfolio={portfolio}
+							selectedProtocolIds={selectedProtocolIds}
+							onToggleProtocol={toggleProtocolSelection}
+							onClearSelection={clearProtocolSelection}
 						/>
 
-						<div className="mt-4">
-							<HoldingsSection portfolio={portfolio} />
-						</div>
+						{!hasProtocolSelection && (
+							<div className="mt-4">
+								<HoldingsSection portfolio={portfolio} />
+							</div>
+						)}
 
 						<div className="mt-4">
-							<DefiPositionsSection portfolio={portfolio} />
+							<DefiPositionsSection portfolio={positionsPortfolio} />
 						</div>
 					</main>
 				</>
