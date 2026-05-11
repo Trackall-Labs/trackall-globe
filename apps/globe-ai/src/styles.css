@@ -817,15 +817,16 @@ input {
   position: relative;
   display: flex;
   align-items: end;
-  gap: 5px;
+  justify-content: flex-end;
+  gap: 3px;
   height: 68px;
   padding: 14px 14px 10px;
 }
 
 .block-bar {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 3px;
-  max-width: 7px;
+  max-width: 6px;
   appearance: none;
   border: 0;
   border-radius: 999px 999px 2px 2px;
@@ -889,6 +890,21 @@ input {
 .block-bar-pending {
   background: var(--warning);
   color: var(--warning);
+}
+
+.block-bar-processed {
+  background: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+  color: var(--muted-foreground);
+}
+
+.block-bar-finalized {
+  background: var(--info);
+  color: var(--info);
+}
+
+.block-bar-confirmed {
+  background: var(--success);
+  color: var(--success);
 }
 
 .block-hover-card {
