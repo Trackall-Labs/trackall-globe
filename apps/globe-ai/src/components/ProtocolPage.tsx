@@ -517,6 +517,20 @@ function ActivityChartCard({
   const first = values.at(0) ?? latest;
   const delta = latest == null || first == null || first === 0 ? null : ((latest - first) / first) * 100;
   const color = chartColor(metric);
+  const yDomain = useMemo<[number, number]>(() => {
+    const finite = values.filter((value) => Number.isFinite(value));
+    if (finite.length === 0) return [0, 1];
+    const min = Math.min(...finite);
+    const max = Math.max(...finite);
+    if (min === max) {
+      const fallback = Math.max(Math.abs(max) * 0.05, 1);
+      return [Math.max(0, min - fallback), max + fallback];
+    }
+    const pad = (max - min) * 0.2;
+    const lowerCandidate = min - pad;
+    const lower = min >= 0 && lowerCandidate < 0 ? 0 : lowerCandidate;
+    return [lower, max + pad];
+  }, [values]);
 
   return (
     <section className="rounded-xl border border-border/60 bg-background/40 p-5">
@@ -582,6 +596,9 @@ function ActivityChartCard({
             />
             <YAxis
               width={56}
+              domain={yDomain}
+              allowDataOverflow
+              allowDecimals={false}
               tickFormatter={(value) => axisValue(metric, Number(value))}
               tick={{ fontSize: 10, letterSpacing: 0 }}
               tickLine={false}
@@ -598,6 +615,7 @@ function ActivityChartCard({
               stroke={color}
               strokeWidth={1.5}
               fill={`url(#${gradientId})`}
+              baseValue={yDomain[0]}
               connectNulls
               isAnimationActive={false}
             />

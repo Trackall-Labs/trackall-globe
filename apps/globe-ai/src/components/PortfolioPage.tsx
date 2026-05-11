@@ -827,6 +827,22 @@ function WalletValueChart({
 	}, [bucket, chartData, showingSkeleton]);
 	const visibleXTickCount =
 		xAxisTicks?.length ?? Math.min(displayData.length, 5);
+	const yDomain = useMemo<[number, number]>(() => {
+		const values = displayData
+			.map((row) => row.value)
+			.filter((value): value is number => Number.isFinite(value));
+		if (values.length === 0) return [0, 1];
+		const min = Math.min(...values);
+		const max = Math.max(...values);
+		if (min === max) {
+			const fallback = Math.max(Math.abs(max) * 0.05, 1);
+			return [Math.max(0, min - fallback), max + fallback];
+		}
+		const pad = (max - min) * 0.2;
+		const lowerCandidate = min - pad;
+		const lower = min >= 0 && lowerCandidate < 0 ? 0 : lowerCandidate;
+		return [lower, max + pad];
+	}, [displayData]);
 	const renderXAxisTick = useCallback(
 		({
 			x = 0,
@@ -917,6 +933,8 @@ function WalletValueChart({
 					/>
 					<YAxis
 						width={62}
+						domain={yDomain}
+						allowDataOverflow
 						tickFormatter={(value) => formatUsdCompact(Number(value))}
 						tick={{ fontSize: 10, letterSpacing: 0 }}
 						tickLine={false}
@@ -936,6 +954,7 @@ function WalletValueChart({
 						dot={displayData.length === 1 ? { r: 3, strokeWidth: 2 } : false}
 						activeDot={showingSkeleton ? false : { r: 4, strokeWidth: 2 }}
 						fill={`url(#${gradientId})`}
+						baseValue={yDomain[0]}
 						isAnimationActive={false}
 					/>
 				</AreaChart>
