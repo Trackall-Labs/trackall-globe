@@ -44,7 +44,7 @@ export function AppHeader({
           aria-current={current === "networks" ? "page" : undefined}
         >
           <LayersIcon className="app-nav-icon" />
-          <span>Networks</span>
+          <span>Network</span>
         </button>
         <button
           type="button"

@@ -34,6 +34,7 @@ import { Chart } from "@orbit/ui/patterns/charts";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@orbit/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@orbit/ui/table";
 import { Tabs, TabsList, TabsTab } from "@orbit/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@orbit/ui/tooltip";
 import {
   formatNetworkLocation,
   networkInitials,
@@ -68,6 +69,7 @@ import {
   type ProtocolUserRow,
   type ProtocolUserType,
 } from "@/lib/protocol-stats";
+import { seriesChange } from "@/lib/series-change";
 import type { Protocol } from "@/lib/types";
 import {
   fetchSolanaTopAggregatePortfolioWallets,
@@ -743,10 +745,13 @@ function liveStreamStatusLabel(status: BlockStreamStatus, hasBlocks: boolean) {
   return "Idle";
 }
 
-function formatLiveBlockLag(value: number | null) {
-  if (value == null) return "pending";
-  if (value < 1_000) return `${Math.round(value)}ms`;
-  return `${(value / 1_000).toFixed(1)}s`;
+function formatLiveBlockAge(receivedAt: string) {
+  const parsed = Date.parse(receivedAt);
+  if (!Number.isFinite(parsed)) return "just now";
+  const elapsed = Math.max(0, Date.now() - parsed);
+  if (elapsed < 1_000) return "just now";
+  if (elapsed < 60_000) return `${(elapsed / 1_000).toFixed(1)}s ago`;
+  return `${Math.round(elapsed / 60_000)}m ago`;
 }
 
 function formatLiveBlockHash(value: string | undefined) {
@@ -802,17 +807,56 @@ function compareLiveBlocksAscending(a: BlockEntry, b: BlockEntry) {
   return (Number.isFinite(aReceivedAt) ? aReceivedAt : 0) - (Number.isFinite(bReceivedAt) ? bReceivedAt : 0);
 }
 
-function liveBlockTone(index: number, total: number) {
-  const ageFromNewest = total - index - 1;
-  if (ageFromNewest < 4) return "bg-emerald-500/80";
-  if (ageFromNewest < 12) return "bg-sky-500/80";
-  return "bg-muted-foreground/45";
+const CONFIRMATION_DEPTH = 32;
+
+type LiveBlockState = "processed" | "finalized" | "confirmed";
+
+function liveBlockState(ageFromNewest: number): LiveBlockState {
+  if (ageFromNewest === 0) return "processed";
+  if (ageFromNewest < CONFIRMATION_DEPTH) return "finalized";
+  return "confirmed";
 }
 
-function liveBlockHeight(block: BlockEntry) {
-  const slot = liveBlockSlot(block) ?? Date.parse(block.receivedAt);
-  if (!Number.isFinite(slot)) return "32px";
-  return `${28 + (Math.abs(slot) % 18)}px`;
+function liveBlockTone(state: LiveBlockState) {
+  if (state === "processed") return "bg-muted-foreground/45";
+  if (state === "finalized") return "bg-sky-500/80";
+  return "bg-emerald-500/80";
+}
+
+function liveBlockDotTone(state: LiveBlockState) {
+  if (state === "processed") return "bg-muted-foreground/60";
+  if (state === "finalized") return "bg-sky-500";
+  return "bg-emerald-500";
+}
+
+const BLOCK_BAR_MIN_PX = 32;
+const BLOCK_BAR_MAX_PX = 60;
+const BLOCK_INTERVAL_MIN_MS = 200;
+const BLOCK_INTERVAL_MAX_MS = 1_200;
+
+function blockIntervalsMs(blocks: BlockEntry[]) {
+  const intervals: (number | null)[] = [];
+  for (let i = 0; i < blocks.length; i += 1) {
+    if (i === 0) {
+      intervals.push(null);
+      continue;
+    }
+    const current = Date.parse(blocks[i]!.receivedAt);
+    const previous = Date.parse(blocks[i - 1]!.receivedAt);
+    if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+      intervals.push(null);
+      continue;
+    }
+    intervals.push(Math.max(0, current - previous));
+  }
+  return intervals;
+}
+
+function intervalToHeightPx(intervalMs: number | null, fallbackMs: number) {
+  const value = intervalMs ?? fallbackMs;
+  const clamped = Math.max(BLOCK_INTERVAL_MIN_MS, Math.min(BLOCK_INTERVAL_MAX_MS, value));
+  const ratio = (clamped - BLOCK_INTERVAL_MIN_MS) / (BLOCK_INTERVAL_MAX_MS - BLOCK_INTERVAL_MIN_MS);
+  return `${BLOCK_BAR_MIN_PX + ratio * (BLOCK_BAR_MAX_PX - BLOCK_BAR_MIN_PX)}px`;
 }
 
 function RecentBlocksStrip({
@@ -829,8 +873,10 @@ function RecentBlocksStrip({
   if (liveBlocks.length > 0 || streamStatus !== "idle" || streamError) {
     const visibleLiveBlocks = [...liveBlocks]
       .sort(compareLiveBlocksAscending)
-      .slice(-24);
+      .slice(-64);
     const avgBlockMs = averageLiveBlockMs(visibleLiveBlocks);
+    const intervalsMs = blockIntervalsMs(visibleLiveBlocks);
+    const fallbackIntervalMs = avgBlockMs ?? 500;
     const latest = visibleLiveBlocks.at(-1);
     const statusLabel = streamError ?? liveStreamStatusLabel(streamStatus, visibleLiveBlocks.length > 0);
 
@@ -845,13 +891,16 @@ function RecentBlocksStrip({
           </div>
           <div className="flex items-center gap-3 font-mono text-[10px] text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
-              <span
-                className={
-                  "size-1.5 rounded-full " +
-                  (streamStatus === "subscribed" ? "bg-emerald-500" : streamStatus === "error" ? "bg-rose-500" : "bg-amber-500")
-                }
-              />
-              {statusLabel}
+              <span className="size-1.5 rounded-sm bg-muted-foreground/45" />
+              <span>processed</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-sm bg-sky-500/80" />
+              <span>confirmed</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-sm bg-emerald-500/80" />
+              <span>finalized</span>
             </span>
             <span className="size-1 rounded-full bg-muted-foreground/40" />
             <span className="tabular-nums">
@@ -861,27 +910,51 @@ function RecentBlocksStrip({
         </header>
 
         {visibleLiveBlocks.length > 0 ? (
-          <div className="mt-4 grid grid-cols-12 gap-1 sm:grid-cols-24" role="list">
-            {visibleLiveBlocks.map((block, index) => {
-              return (
-                <button
-                  key={block.id}
-                  type="button"
-                  role="listitem"
-                  title={`${liveBlockTitle(block)} · ${formatLiveBlockHash(block.blockhash)} · parent ${block.parentSlot ?? "unknown"} · ${formatLiveBlockLag(block.receivedLagMs)}`}
-                  className="group relative flex h-12 items-end justify-center rounded-md transition-colors hover:bg-muted/40"
-                >
-                  <span
-                    className={
-                      "block w-full origin-bottom rounded-sm transition-all group-hover:opacity-100 " +
-                      liveBlockTone(index, visibleLiveBlocks.length)
-                    }
-                    style={{ height: liveBlockHeight(block) }}
-                  />
-                </button>
-              );
-            })}
-          </div>
+          <TooltipProvider delay={80} closeDelay={40}>
+            <div className="mt-4 grid grid-cols-64 gap-0.5" dir="rtl" role="list">
+              {[...visibleLiveBlocks].reverse().map((block, ageFromNewest) => {
+                const state = liveBlockState(ageFromNewest);
+                const ascendingIndex = visibleLiveBlocks.length - 1 - ageFromNewest;
+                const intervalMs = intervalsMs[ascendingIndex] ?? null;
+                return (
+                  <Tooltip key={block.id}>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          role="listitem"
+                          className="group relative flex h-16 items-end justify-center rounded-md transition-[background-color,scale] hover:scale-110 hover:bg-muted/40"
+                        />
+                      }
+                    >
+                      <span
+                        className={
+                          "block w-full origin-bottom rounded-sm transition-all group-hover:opacity-100 " +
+                          liveBlockTone(state)
+                        }
+                        style={{ height: intervalToHeightPx(intervalMs, fallbackIntervalMs) }}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div className="flex flex-col gap-0.5 text-[11px] leading-snug" dir="ltr">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <span className={"size-1.5 rounded-full " + liveBlockDotTone(state)} />
+                          <span>{liveBlockTitle(block)}</span>
+                          <span className="text-muted-foreground">· {state}</span>
+                        </div>
+                        <div className="font-mono text-[10px] text-muted-foreground">
+                          {formatLiveBlockHash(block.blockhash)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {intervalMs == null ? "first block" : `+${intervalMs}ms`} · {formatLiveBlockAge(block.receivedAt)}
+                        </div>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </TooltipProvider>
         ) : (
           <div className="mt-4 rounded-lg border border-border/60 bg-background/35 px-4 py-6 text-center text-sm text-muted-foreground">
             {statusLabel}
@@ -1014,21 +1087,6 @@ function SortableHead({
       </button>
     </TableHead>
   );
-}
-
-function percentChange(current: number | null, previous: number | null) {
-  if (current == null || previous == null || previous === 0) return null;
-  return ((current - previous) / previous) * 100;
-}
-
-function seriesChange(points: Array<{ timestamp: string; value: number | null }>, days: number) {
-  const latest = points.at(-1);
-  if (!latest || latest.value == null) return null;
-  const cutoff = Date.parse(latest.timestamp) - days * 24 * 60 * 60 * 1000;
-  const previous =
-    [...points].reverse().find((point) => point.value != null && Date.parse(point.timestamp) <= cutoff) ??
-    points.find((point) => point.value != null);
-  return percentChange(latest.value, previous?.value ?? null);
 }
 
 function latestPlotValue(points: Array<{ activeUsers?: number | null; timestamp: string }>) {

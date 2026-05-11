@@ -832,7 +832,7 @@ export function App() {
   }, [pushRoute]);
 
   const handleNavigateNetworks = useCallback(() => {
-    pushRoute("/networks");
+    pushRoute("/network/solana", null);
     setSelectedProtocol(null);
     setProtocolPreviewAnchor(null);
     setPinMode(false);
