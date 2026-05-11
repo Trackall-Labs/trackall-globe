@@ -1,9 +1,10 @@
 import {
-  type ComponentPropsWithoutRef,
   type MouseEvent,
+  type MutableRefObject,
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,7 +26,6 @@ import { ProtocolPage } from "./components/ProtocolPage";
 import { WalletPinDialog } from "./components/WalletPinDialog";
 import type { CountryFeature } from "./lib/countries";
 import { transactionExplorerUrl } from "./lib/explorer";
-import { NETWORKS, type Network } from "./lib/networks";
 import {
   getNetworkFromPath,
   getNetworkIdFromPath,
@@ -68,130 +68,35 @@ type PreviewAnchor = {
   y: number;
 };
 
-type MockActivityToast = {
-  actionProps?: ComponentPropsWithoutRef<"button">;
-  description: ReactNode;
-  title: ReactNode;
-  type: "info" | "success" | "warning";
-};
-
-type MockActivityEvent =
-  | {
-      amount: string;
-      kind: "protocol-flow";
-      network: Network;
-      protocol: Protocol;
-    }
-  | {
-      kind: "network-event";
-      network: Network;
-    }
-  | {
-      flow: string;
-      kind: "wallet-transaction";
-      network: Network;
-      protocol: Protocol;
-      txHash: string;
-      wallet: string;
-    }
-  | {
-      kind: "protocol-activity";
-      network: Network;
-      protocol: Protocol;
-    };
-
-type MockActivityHandlers = {
-  onOpenNetwork: (networkId: string) => void;
+type LiveActivityHandlers = {
   onOpenProtocol: (protocolId: string) => void;
 };
 
-const ACTIVITY_INITIAL_DELAY_MS = 900;
-const ACTIVITY_INITIAL_BURST_COUNT = 4;
-const ACTIVITY_INITIAL_BURST_STAGGER_MS = 650;
-const ACTIVITY_INTERVAL_MIN_MS = 3600;
-const ACTIVITY_INTERVAL_MAX_MS = 5600;
+type ProgramMatch = {
+  programId: string;
+  protocol: Protocol | null;
+};
+
+type ProtocolMatch = {
+  programIds: string[];
+  protocol: Protocol;
+};
+
 const ACTIVITY_TOAST_TIMEOUT_MS = 12_000;
-
-const MOCK_WHALE_WALLETS = [
-  "8dYbQ...n3M9p",
-  "BABBC...Uwwwv",
-  "4nq9K...8sL2a",
-  "21112...59899",
-] as const;
-
-function randomBetween(min: number, max: number) {
-  return min + Math.random() * (max - min);
-}
-
-function pickMockItem<T>(items: readonly T[], index: number) {
-  return items[index % items.length]!;
-}
-
-function compactUsd(value: number) {
-  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
-  return `$${(value / 1_000_000).toFixed(1)}M`;
-}
-
-function mockTransactionHash(index: number, network: Network) {
-  if (network.id === "solana") {
-    const solanaHashes = [
-      "5YTXpWRiNqP4aHsxDhmvVb6sXehR9vZq9nVt2m4hQZ7fJ6u3A2rV8cWkLq9pNfE1bR7sT4xY8mK2dP6aC3hG9j",
-      "3uYbLqK8pR5nVwS2xT9cAaD4eF7hJ1mN6zQ8rU2vX5kB9pC3dE7fG1hL4jM8nP2q",
-      "4sNfT9rX2kL6aV3pQ8mC1dB7eH5jY4uW9zR2vP6qA8tK3nD5gF7hJ1lM9xC4bE",
-    ];
-    return pickMockItem(solanaHashes, index);
-  }
-
-  const hex = "0123456789abcdef";
-  const body = Array.from({ length: 64 }, (_, position) => hex[(index * 11 + position * 7) % hex.length]).join("");
-  return `0x${body}`;
-}
+const LIVE_TOAST_GLOBAL_SPACING_MS = 1_200;
+const CROSS_PROGRAM_COOLDOWN_MS = 8_000;
+const FAILURE_COOLDOWN_MS = 20_000;
+const PROTOCOL_BURST_WINDOW_MS = 5_000;
+const PROTOCOL_BURST_MIN_TX = 10;
+const PROTOCOL_BURST_COOLDOWN_MS = 18_000;
 
 function shortHash(hash: string) {
   return `${hash.slice(0, 6)}...${hash.slice(-4)}`;
 }
 
-function buildMockActivityEvent(
-  index: number,
-  protocols: readonly Protocol[],
-  networkFilter: Network | null,
-): MockActivityEvent | null {
-  if (protocols.length === 0) return null;
-  const protocol = pickMockItem(protocols, index * 2);
-  const networkName = pickMockItem(protocol.networks.length > 0 ? protocol.networks : ["Ethereum"], index);
-  const network = networkFilter ?? NETWORKS.find((item) => item.name === networkName) ?? pickMockItem(NETWORKS, index);
-  const wallet = pickMockItem(MOCK_WHALE_WALLETS, index);
-  const amount = compactUsd(randomBetween(1_200_000, 24_000_000));
-  const flow = compactUsd(randomBetween(800_000, 9_500_000));
-  const txHash = mockTransactionHash(index, network);
-
-  const events: MockActivityEvent[] = [
-    {
-      amount,
-      kind: "protocol-flow",
-      network,
-      protocol,
-    },
-    {
-      kind: "network-event",
-      network,
-    },
-    {
-      kind: "protocol-activity",
-      network,
-      protocol,
-    },
-    {
-      flow,
-      kind: "wallet-transaction",
-      network,
-      protocol,
-      txHash,
-      wallet,
-    },
-  ];
-
-  return pickMockItem(events, index);
+function shortProgramId(programId: string) {
+  if (programId.length <= 12) return programId;
+  return `${programId.slice(0, 4)}...${programId.slice(-4)}`;
 }
 
 function ActivityMention({
@@ -212,173 +117,309 @@ function ActivityMention({
   );
 }
 
-function renderMockActivityToast(
-  event: MockActivityEvent,
+function buildProgramProtocolMap(protocols: readonly Protocol[]) {
+  const map = new Map<string, Protocol>();
+  for (const protocol of protocols) {
+    for (const programId of protocol.programIds ?? []) {
+      if (!map.has(programId)) map.set(programId, protocol);
+    }
+  }
+  return map;
+}
+
+function uniqueProgramMatches(tx: SolanaTransactionMessage, protocolByProgramId: Map<string, Protocol>) {
+  const seen = new Set<string>();
+  const matches: ProgramMatch[] = [];
+  for (const programId of tx.matchedProgramIds) {
+    if (seen.has(programId)) continue;
+    seen.add(programId);
+    matches.push({ programId, protocol: protocolByProgramId.get(programId) ?? null });
+  }
+  return matches;
+}
+
+function uniqueProtocolMatches(matches: readonly ProgramMatch[]) {
+  const protocols = new Map<string, ProtocolMatch>();
+  for (const match of matches) {
+    if (!match.protocol) continue;
+    const current = protocols.get(match.protocol.id);
+    if (current) {
+      current.programIds.push(match.programId);
+      continue;
+    }
+    protocols.set(match.protocol.id, { programIds: [match.programId], protocol: match.protocol });
+  }
+  return Array.from(protocols.values());
+}
+
+function interactionKey(protocolMatches: readonly ProtocolMatch[], fallbackPrograms: readonly ProgramMatch[]) {
+  const keys =
+    protocolMatches.length > 0
+      ? protocolMatches.map((match) => match.protocol.id)
+      : fallbackPrograms.map((match) => match.programId);
+  return keys.sort().join(":");
+}
+
+function matchLabel(protocolMatches: readonly ProtocolMatch[], programMatches: readonly ProgramMatch[]) {
+  if (protocolMatches.length > 0) {
+    return protocolMatches.map((match) => match.protocol.name).join(" + ");
+  }
+  return programMatches.map((match) => shortProgramId(match.programId)).join(" + ");
+}
+
+function formatSlot(slot: string) {
+  const parsed = Number(slot);
+  return Number.isFinite(parsed) ? parsed.toLocaleString("en-US") : slot;
+}
+
+function formatTps(value: number) {
+  return value >= 10 ? value.toFixed(0) : value.toFixed(1);
+}
+
+function openExplorer(toastId: string, signature: string) {
+  const explorerUrl = transactionExplorerUrl(signature, "Solana");
+  if (!explorerUrl) return;
+  toastManager.close(toastId);
+  window.location.assign(explorerUrl);
+}
+
+function protocolMention(
+  protocol: Protocol,
   toastId: string,
-  handlers: MockActivityHandlers,
-): MockActivityToast {
+  handlers: LiveActivityHandlers,
+) {
   const openProtocol = (protocolId: string) => (clickEvent: MouseEvent<HTMLButtonElement>) => {
     clickEvent.stopPropagation();
     toastManager.close(toastId);
     handlers.onOpenProtocol(protocolId);
   };
-  const openNetwork = (networkId: string) => (clickEvent: MouseEvent<HTMLButtonElement>) => {
-    clickEvent.stopPropagation();
-    toastManager.close(toastId);
-    handlers.onOpenNetwork(networkId);
-  };
-  const protocolMention = (protocol: Protocol) => (
-    <ActivityMention onClick={openProtocol(protocol.id)}>{protocol.name}</ActivityMention>
-  );
-  const networkMention = (network: Network) => (
-    <ActivityMention onClick={openNetwork(network.id)}>{network.name}</ActivityMention>
-  );
 
-  if (event.kind === "protocol-flow") {
-    return {
-      type: "success",
-      title: (
-        <span className="inline-flex flex-wrap items-center gap-1.5">
-          {protocolMention(event.protocol)}
-          <span>routed {event.amount}</span>
-        </span>
-      ),
-      description: (
-        <span className="inline-flex flex-wrap items-center gap-1.5 leading-snug">
-          {networkMention(event.network)}
-          <span>liquidity path settled across live markets.</span>
-        </span>
-      ),
-    };
-  }
-
-  if (event.kind === "network-event") {
-    return {
-      type: "info",
-      title: (
-        <span className="inline-flex flex-wrap items-center gap-1.5">
-          {networkMention(event.network)}
-          <span>finality stable</span>
-        </span>
-      ),
-      description: `Blocks confirming near ${event.network.finalitySec}s with healthy relay activity.`,
-    };
-  }
-
-  if (event.kind === "protocol-activity") {
-    return {
-      type: "info",
-      title: (
-        <span className="inline-flex flex-wrap items-center gap-1.5">
-          {protocolMention(event.protocol)}
-          <span>user activity up</span>
-        </span>
-      ),
-      description: (
-        <span className="inline-flex flex-wrap items-center gap-1.5 leading-snug">
-          {networkMention(event.network)}
-          <span>saw a fresh burst of wallet interactions.</span>
-        </span>
-      ),
-    };
-  }
-
-  const explorerUrl = transactionExplorerUrl(event.txHash, event.network);
-  return {
-    type: "warning",
-    title: "Whale deposit detected",
-    description: (
-      <span className="inline-flex flex-wrap items-center gap-1.5 leading-snug">
-        <span className="font-mono text-xs tabular-nums">{event.wallet}</span>
-        <span>moved {event.flow} into</span>
-        {protocolMention(event.protocol)}
-        <span>vaults on</span>
-        {networkMention(event.network)}
-        <span className="font-mono text-[11px] text-muted-foreground tabular-nums">tx {shortHash(event.txHash)}</span>
-      </span>
-    ),
-    actionProps: explorerUrl
-      ? {
-          "aria-label": `Open ${shortHash(event.txHash)} in explorer`,
-          children: (
-            <>
-              View tx
-              <ExternalLinkIcon />
-            </>
-          ),
-          onClick: () => {
-            toastManager.close(toastId);
-            window.location.assign(explorerUrl);
-          },
-        }
-      : undefined,
-  };
+  return <ActivityMention onClick={openProtocol(protocol.id)}>{protocol.name}</ActivityMention>;
 }
 
-function useMockGlobeActivity(
-  enabled: boolean,
-  handlers: MockActivityHandlers,
-  networkFilter: Network | null,
-  protocols: readonly Protocol[],
+function protocolMentions(
+  protocolMatches: readonly ProtocolMatch[],
+  toastId: string,
+  handlers: LiveActivityHandlers,
 ) {
-  const eventIndexRef = useRef(0);
+  return protocolMatches.map((match, index) => (
+    <span className="contents" key={match.protocol.id}>
+      {index > 0 ? <span>+</span> : null}
+      {protocolMention(match.protocol, toastId, handlers)}
+    </span>
+  ));
+}
+
+function emitCrossProgramToast(
+  toastId: string,
+  tx: SolanaTransactionMessage,
+  programMatches: readonly ProgramMatch[],
+  protocolMatches: readonly ProtocolMatch[],
+  handlers: LiveActivityHandlers,
+  onClose: () => void,
+) {
+  toastManager.add({
+    id: toastId,
+    type: "success",
+    timeout: ACTIVITY_TOAST_TIMEOUT_MS,
+    onClose,
+    title: (
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        {protocolMatches.length > 0 ? (
+          protocolMentions(protocolMatches.slice(0, 3), toastId, handlers)
+        ) : (
+          <span>{matchLabel([], programMatches.slice(0, 3))}</span>
+        )}
+        <span>shared one transaction</span>
+      </span>
+    ),
+    description: (
+      <span className="inline-flex flex-wrap items-center gap-1.5 leading-snug">
+        <span>{programMatches.length.toLocaleString("en-US")} matched programs</span>
+        <span>{tx.accountKeys.length.toLocaleString("en-US")} accounts</span>
+        <span>slot {formatSlot(tx.slot)}</span>
+        <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+          tx {shortHash(tx.signature)}
+        </span>
+      </span>
+    ),
+    actionProps: {
+      "aria-label": `Open ${shortHash(tx.signature)} in explorer`,
+      children: (
+        <>
+          View tx
+          <ExternalLinkIcon />
+        </>
+      ),
+      onClick: () => openExplorer(toastId, tx.signature),
+    },
+  });
+}
+
+function emitFailureToast(
+  toastId: string,
+  tx: SolanaTransactionMessage,
+  programMatches: readonly ProgramMatch[],
+  protocolMatches: readonly ProtocolMatch[],
+  handlers: LiveActivityHandlers,
+  onClose: () => void,
+) {
+  toastManager.add({
+    id: toastId,
+    type: "warning",
+    timeout: ACTIVITY_TOAST_TIMEOUT_MS,
+    onClose,
+    title: (
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span>Failed interaction</span>
+        {protocolMatches.length > 0 ? (
+          <>
+            <span>on</span>
+            {protocolMentions(protocolMatches.slice(0, 2), toastId, handlers)}
+          </>
+        ) : null}
+      </span>
+    ),
+    description: (
+      <span className="inline-flex flex-wrap items-center gap-1.5 leading-snug">
+        <span>{programMatches.length.toLocaleString("en-US")} matched programs</span>
+        <span>instruction #{tx.index}</span>
+        <span>slot {formatSlot(tx.slot)}</span>
+        <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+          tx {shortHash(tx.signature)}
+        </span>
+      </span>
+    ),
+    actionProps: {
+      "aria-label": `Open ${shortHash(tx.signature)} in explorer`,
+      children: (
+        <>
+          View tx
+          <ExternalLinkIcon />
+        </>
+      ),
+      onClick: () => openExplorer(toastId, tx.signature),
+    },
+  });
+}
+
+function emitBurstToast(
+  toastId: string,
+  protocol: Protocol,
+  count: number,
+  handlers: LiveActivityHandlers,
+  onClose: () => void,
+) {
+  toastManager.add({
+    id: toastId,
+    type: "info",
+    timeout: ACTIVITY_TOAST_TIMEOUT_MS,
+    onClose,
+    title: (
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        {protocolMention(protocol, toastId, handlers)}
+        <span>activity burst</span>
+      </span>
+    ),
+    description: (
+      <span className="inline-flex flex-wrap items-center gap-1.5 leading-snug">
+        <span>{count.toLocaleString("en-US")} matched tx in 5s</span>
+        <span>{formatTps(count / (PROTOCOL_BURST_WINDOW_MS / 1_000))} tx/s</span>
+      </span>
+    ),
+  });
+}
+
+function useLiveGlobeActivity(
+  enabled: boolean,
+  handlers: LiveActivityHandlers,
+  protocols: readonly Protocol[],
+  onLiveTransactionRef: MutableRefObject<((tx: SolanaTransactionMessage) => void) | null>,
+) {
   const activityToastIdsRef = useRef(new Set<string>());
+  const protocolByProgramIdRef = useRef(new Map<string, Protocol>());
+  const enabledRef = useRef(enabled);
+  const handlersRef = useRef(handlers);
+  const lastToastAtRef = useRef(0);
+  const crossProgramCooldownRef = useRef(new Map<string, number>());
+  const failureCooldownRef = useRef(new Map<string, number>());
+  const burstCooldownRef = useRef(new Map<string, number>());
+  const burstWindowsRef = useRef(new Map<string, number[]>());
 
-  useEffect(() => {
-    if (!enabled) return;
+  useLayoutEffect(() => {
+    protocolByProgramIdRef.current = buildProgramProtocolMap(protocols);
+  }, [protocols]);
 
-    const timeoutIds = new Set<number>();
-    let cancelled = false;
+  useLayoutEffect(() => {
+    enabledRef.current = enabled;
+    handlersRef.current = handlers;
+  }, [enabled, handlers]);
 
-    const emitActivity = () => {
-      const toastId = `globe-activity-${Date.now()}-${eventIndexRef.current}`;
-      const activity = buildMockActivityEvent(eventIndexRef.current, protocols, networkFilter);
-      eventIndexRef.current += 1;
-      if (!activity) return;
-      const event = renderMockActivityToast(activity, toastId, handlers);
-      toastManager.add({
-        description: event.description,
-        id: toastId,
-        actionProps: event.actionProps,
-        onClose: () => {
+  useLayoutEffect(() => {
+    onLiveTransactionRef.current = (tx) => {
+      if (!enabledRef.current) return;
+      if (tx.matchedProgramIds.length === 0) return;
+
+      const now = Date.now();
+      const programMatches = uniqueProgramMatches(tx, protocolByProgramIdRef.current);
+      if (programMatches.length === 0) return;
+
+      const protocolMatches = uniqueProtocolMatches(programMatches);
+      const markToast = (toastId: string) => {
+        lastToastAtRef.current = now;
+        activityToastIdsRef.current.add(toastId);
+        return () => {
           activityToastIdsRef.current.delete(toastId);
-        },
-        timeout: ACTIVITY_TOAST_TIMEOUT_MS,
-        title: event.title,
-        type: event.type,
-      });
-      activityToastIdsRef.current.add(toastId);
-    };
+        };
+      };
+      const canShowGlobalToast = now - lastToastAtRef.current >= LIVE_TOAST_GLOBAL_SPACING_MS;
 
-    const schedule = (delay: number) => {
-      const timeoutId = window.setTimeout(() => {
-        timeoutIds.delete(timeoutId);
-        if (cancelled) return;
-        emitActivity();
-        schedule(randomBetween(ACTIVITY_INTERVAL_MIN_MS, ACTIVITY_INTERVAL_MAX_MS));
-      }, delay);
-      timeoutIds.add(timeoutId);
-    };
+      if (tx.failed) {
+        const key = interactionKey(protocolMatches, programMatches);
+        const lastFailure = failureCooldownRef.current.get(key) ?? 0;
+        if (canShowGlobalToast && now - lastFailure >= FAILURE_COOLDOWN_MS) {
+          const toastId = `live-failed-${tx.signature}`;
+          failureCooldownRef.current.set(key, now);
+          emitFailureToast(toastId, tx, programMatches, protocolMatches, handlersRef.current, markToast(toastId));
+        }
+        return;
+      }
 
-    for (let i = 0; i < ACTIVITY_INITIAL_BURST_COUNT; i += 1) {
-      const timeoutId = window.setTimeout(() => {
-        timeoutIds.delete(timeoutId);
-        if (!cancelled) emitActivity();
-      }, ACTIVITY_INITIAL_DELAY_MS + i * ACTIVITY_INITIAL_BURST_STAGGER_MS);
-      timeoutIds.add(timeoutId);
-    }
-    schedule(
-      ACTIVITY_INITIAL_DELAY_MS +
-        ACTIVITY_INITIAL_BURST_COUNT * ACTIVITY_INITIAL_BURST_STAGGER_MS +
-        randomBetween(ACTIVITY_INTERVAL_MIN_MS, ACTIVITY_INTERVAL_MAX_MS),
-    );
+      for (const match of protocolMatches) {
+        const current = burstWindowsRef.current.get(match.protocol.id) ?? [];
+        current.push(now);
+        const cutoff = now - PROTOCOL_BURST_WINDOW_MS;
+        while (current.length > 0 && current[0]! < cutoff) current.shift();
+        burstWindowsRef.current.set(match.protocol.id, current);
+
+        const lastBurst = burstCooldownRef.current.get(match.protocol.id) ?? 0;
+        if (
+          current.length >= PROTOCOL_BURST_MIN_TX &&
+          canShowGlobalToast &&
+          now - lastBurst >= PROTOCOL_BURST_COOLDOWN_MS
+        ) {
+          const toastId = `live-burst-${match.protocol.id}-${Math.floor(now / PROTOCOL_BURST_WINDOW_MS)}`;
+          burstCooldownRef.current.set(match.protocol.id, now);
+          emitBurstToast(toastId, match.protocol, current.length, handlersRef.current, markToast(toastId));
+          return;
+        }
+      }
+
+      if (programMatches.length < 2) return;
+
+      const key = interactionKey(protocolMatches, programMatches);
+      const lastCrossProgram = crossProgramCooldownRef.current.get(key) ?? 0;
+      if (!canShowGlobalToast || now - lastCrossProgram < CROSS_PROGRAM_COOLDOWN_MS) return;
+
+      const toastId = `live-cross-${tx.signature}`;
+      crossProgramCooldownRef.current.set(key, now);
+      emitCrossProgramToast(toastId, tx, programMatches, protocolMatches, handlersRef.current, markToast(toastId));
+    };
 
     return () => {
-      cancelled = true;
-      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
-      timeoutIds.clear();
+      onLiveTransactionRef.current = null;
     };
-  }, [enabled, handlers, networkFilter, protocols]);
+  }, [onLiveTransactionRef]);
 
   useEffect(() => {
     if (enabled) return;
@@ -387,6 +428,7 @@ function useMockGlobeActivity(
       toastManager.close(toastId);
     });
     activityToastIdsRef.current.clear();
+    burstWindowsRef.current.clear();
   }, [enabled]);
 }
 
@@ -547,7 +589,9 @@ function RouteTransition({
 
 export function App() {
   const globeSceneRef = useRef<GlobeSceneHandle | null>(null);
+  const liveActivityTransactionRef = useRef<((tx: SolanaTransactionMessage) => void) | null>(null);
   const handleStreamTransaction = useCallback((tx: SolanaTransactionMessage) => {
+    liveActivityTransactionRef.current?.(tx);
     if (tx.failed) return;
     if (tx.matchedProgramIds.length === 0) return;
     globeSceneRef.current?.spawnArcsForTransaction(tx.matchedProgramIds);
@@ -818,16 +862,15 @@ export function App() {
 
   const activityHandlers = useMemo(
     () => ({
-      onOpenNetwork: handleOpenNetwork,
       onOpenProtocol: (protocolId: string) => {
         const protocol = allProtocols.find((item) => item.id === protocolId);
         if (protocol) handleOpenProtocol(protocol);
       },
     }),
-    [allProtocols, handleOpenNetwork, handleOpenProtocol],
+    [allProtocols, handleOpenProtocol],
   );
 
-  useMockGlobeActivity(homeRouteActive, activityHandlers, activeNetworkFilter, filteredProtocols);
+  useLiveGlobeActivity(homeRouteActive, activityHandlers, filteredProtocols, liveActivityTransactionRef);
 
   return (
     <main className="app-shell">
