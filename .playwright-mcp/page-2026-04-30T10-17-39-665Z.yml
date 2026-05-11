@@ -1,0 +1,156 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - generic "Primary":
+      - navigation [ref=e4]:
+        - button "Home" [ref=e5] [cursor=pointer]:
+          - img [ref=e6]
+          - generic [ref=e9]: Home
+        - button "Networks" [ref=e10] [cursor=pointer]:
+          - img [ref=e11]
+          - generic [ref=e15]: Networks
+        - button "Projects" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+          - generic [ref=e27]: Projects
+        - button "Portfolio" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+          - generic [ref=e32]: Portfolio
+    - region "Interactive DeFi globe" [ref=e33]:
+      - generic [ref=e199]:
+        - generic "Protocol markers":
+          - button "Cluster of 2 protocols" [ref=e200] [cursor=pointer]:
+            - generic [ref=e204]: "2"
+          - button "Cluster of 2 protocols" [ref=e205] [cursor=pointer]:
+            - generic [ref=e209]: "2"
+          - button "AlphaLend protocol marker" [ref=e210] [cursor=pointer]:
+            - generic [ref=e212]: AlphaLend
+          - button "Cluster of 2 protocols" [ref=e213] [cursor=pointer]:
+            - generic [ref=e217]: "2"
+          - button "Cluster of 3 protocols" [ref=e218] [cursor=pointer]:
+            - generic [ref=e223]: "3"
+          - button "Bucket Farm protocol marker" [ref=e224] [cursor=pointer]:
+            - generic [ref=e226]: Bucket Farm
+          - button "Cluster of 3 protocols" [ref=e336] [cursor=pointer]:
+            - generic [ref=e341]: "3"
+          - button "Cluster of 2 protocols" [ref=e233] [cursor=pointer]:
+            - generic [ref=e237]: "2"
+          - button "Cluster of 2 protocols" [ref=e238] [cursor=pointer]:
+            - generic [ref=e242]: "2"
+          - button "Curve protocol marker" [ref=e243] [cursor=pointer]:
+            - generic [ref=e245]: Curve
+          - button "DeepBook V3 protocol marker" [ref=e246] [cursor=pointer]:
+            - generic [ref=e248]: DeepBook V3
+          - button "Cluster of 2 protocols" [ref=e249] [cursor=pointer]:
+            - generic [ref=e253]: "2"
+          - button "Sky protocol marker" [ref=e254] [cursor=pointer]:
+            - generic [ref=e256]: Sky
+          - button "Momentum protocol marker" [ref=e257] [cursor=pointer]:
+            - generic [ref=e259]: Momentum
+          - button "SpringSui protocol marker" [ref=e260] [cursor=pointer]:
+            - generic [ref=e262]: SpringSui
+    - complementary [ref=e100]:
+      - generic [ref=e101]:
+        - generic [ref=e104]: Block Stream
+        - generic [ref=e105]: "#248,239,792"
+      - generic "Recent blocks" [ref=e106]:
+        - button "Block 248,239,671, Finalized, 868ms finality" [ref=e333]
+        - button "Block 248,239,673, Pending, 928ms finality" [ref=e334]
+        - button "Block 248,239,679, Pending, 873ms finality" [ref=e335]
+        - button "Block 248,239,682, Finalized, 988ms finality" [ref=e342]
+        - button "Block 248,239,684, Finalized, 1122ms finality" [ref=e343]
+        - button "Block 248,239,688, Finalized, 1151ms finality" [ref=e344]
+        - button "Block 248,239,691, Finalized, 1132ms finality" [ref=e345]
+        - button "Block 248,239,695, Failed, 1215ms finality" [ref=e346]
+        - button "Block 248,239,700, Finalized, 1224ms finality" [ref=e347]
+        - button "Block 248,239,702, Finalized, 1265ms finality" [ref=e348]
+        - button "Block 248,239,705, Finalized, 1329ms finality" [ref=e349]
+        - button "Block 248,239,709, Pending, 1165ms finality" [ref=e350]
+        - button "Block 248,239,711, Finalized, 939ms finality" [ref=e351]
+        - button "Block 248,239,716, Finalized, 1074ms finality" [ref=e352]
+        - button "Block 248,239,721, Finalized, 1212ms finality" [ref=e353]
+        - button "Block 248,239,725, Finalized, 1336ms finality" [ref=e354]
+        - button "Block 248,239,729, Finalized, 1398ms finality" [ref=e355]
+        - button "Block 248,239,733, Finalized, 1345ms finality" [ref=e356]
+        - button "Block 248,239,737, Failed, 1343ms finality" [ref=e357]
+        - button "Block 248,239,743, Pending, 1420ms finality" [ref=e358]
+        - button "Block 248,239,748, Failed, 1420ms finality" [ref=e359]
+        - button "Block 248,239,751, Finalized, 1410ms finality" [ref=e360]
+        - button "Block 248,239,754, Finalized, 1293ms finality" [ref=e361]
+        - button "Block 248,239,758, Finalized, 1133ms finality" [ref=e362]
+        - button "Block 248,239,761, Finalized, 1142ms finality" [ref=e363]
+        - button "Block 248,239,765, Failed, 1124ms finality" [ref=e364]
+        - button "Block 248,239,768, Finalized, 1120ms finality" [ref=e392]
+        - button "Block 248,239,772, Failed, 1226ms finality" [ref=e393]
+        - button "Block 248,239,776, Finalized, 1315ms finality" [ref=e394]
+        - button "Block 248,239,782, Finalized, 1330ms finality" [ref=e395]
+        - button "Block 248,239,787, Finalized, 1420ms finality" [ref=e396]
+        - button "Block 248,239,792, Finalized, 1268ms finality" [ref=e397]
+      - generic [ref=e139]:
+        - generic [ref=e140]: Avg latency
+        - strong [ref=e141]: 1204 ms
+    - complementary [ref=e142]:
+      - generic [ref=e143]:
+        - generic [ref=e146]: Live Markets
+        - generic [ref=e147]: 25 Protocols
+      - generic [ref=e148]:
+        - generic [ref=e149]:
+          - img [ref=e151]
+          - generic [ref=e154]: Total TVL
+          - strong [ref=e155]: $62.56B
+          - generic [ref=e156]: +1.84%
+        - generic [ref=e157]:
+          - img [ref=e159]
+          - generic [ref=e163]: 24h Volume
+          - strong [ref=e164]: $14.09B
+          - generic [ref=e165]: "-0.42%"
+        - generic [ref=e166]:
+          - img [ref=e168]
+          - generic [ref=e175]: Live TPS
+          - strong [ref=e176]: 4.2K
+          - generic [ref=e177]: rolling
+      - generic [ref=e178]:
+        - generic [ref=e179]:
+          - img [ref=e180]
+          - text: Mainnet
+        - strong [ref=e181]: 24h rolling
+  - generic:
+    - region "Notifications"
+  - generic:
+    - region "Notifications":
+      - dialog "Cetus CLMM user activity up" [ref=e398]:
+        - generic [ref=e400]:
+          - generic [ref=e401]:
+            - img
+          - generic [ref=e402]:
+            - heading "Cetus CLMM user activity up" [level=2] [ref=e403]:
+              - generic [ref=e404]:
+                - button "Cetus CLMM" [ref=e405]
+                - generic [ref=e406]: user activity up
+            - paragraph [ref=e407]:
+              - generic [ref=e408]:
+                - button "Sui" [ref=e409]
+                - generic [ref=e410]: saw a fresh burst of wallet interactions.
+      - dialog "Sui finality stable" [ref=e411]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - heading "Sui finality stable" [level=2]:
+                - generic:
+                  - button "Sui"
+                  - generic: finality stable
+              - paragraph: Blocks confirming near 1s with healthy relay activity.
+      - dialog "AlphaLend routed $1.8M" [ref=e365]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - heading "AlphaLend routed $1.8M" [level=2]:
+                - generic:
+                  - button "AlphaLend"
+                  - generic: routed $1.8M
+              - paragraph:
+                - generic:
+                  - button "Sui"
+                  - generic: liquidity path settled across live markets.

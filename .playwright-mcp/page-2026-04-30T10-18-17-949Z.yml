@@ -1,0 +1,176 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - generic "Primary":
+      - navigation [ref=e4]:
+        - button "Home" [ref=e5] [cursor=pointer]:
+          - img [ref=e6]
+          - generic [ref=e9]: Home
+        - button "Networks" [ref=e10] [cursor=pointer]:
+          - img [ref=e11]
+          - generic [ref=e15]: Networks
+        - button "Projects" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+          - generic [ref=e27]: Projects
+        - button "Portfolio" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+          - generic [ref=e32]: Portfolio
+    - region "Interactive DeFi globe" [ref=e33]:
+      - generic [ref=e478]:
+        - generic "Protocol markers":
+          - button "Aave protocol marker" [ref=e479] [cursor=pointer]:
+            - generic [ref=e481]: Aave
+          - button "AlphaFi Agg protocol marker" [ref=e482] [cursor=pointer]:
+            - generic [ref=e484]: AlphaFi Agg
+          - button "AlphaLend protocol marker" [ref=e485] [cursor=pointer]:
+            - generic [ref=e487]: AlphaLend
+          - button "Bluefin Spot protocol marker" [ref=e488] [cursor=pointer]:
+            - generic [ref=e490]: Bluefin Spot
+          - button "Bucket CDP protocol marker" [ref=e491] [cursor=pointer]:
+            - generic [ref=e493]: Bucket CDP
+          - button "Bucket Farm protocol marker" [ref=e494] [cursor=pointer]:
+            - generic [ref=e496]: Bucket Farm
+          - button "Cetus CLMM protocol marker" [ref=e497] [cursor=pointer]:
+            - generic [ref=e499]: Cetus CLMM
+          - button "Compound protocol marker" [ref=e500] [cursor=pointer]:
+            - generic [ref=e502]: Compound
+          - button "Current protocol marker" [ref=e503] [cursor=pointer]:
+            - generic [ref=e505]: Current
+          - button "Curve protocol marker" [ref=e506] [cursor=pointer]:
+            - generic [ref=e508]: Curve
+          - button "DeepBook V3 protocol marker" [ref=e509] [cursor=pointer]:
+            - generic [ref=e511]: DeepBook V3
+          - button "dYdX protocol marker" [ref=e512] [cursor=pointer]:
+            - generic [ref=e514]: dYdX
+          - button "GMX protocol marker" [ref=e515] [cursor=pointer]:
+            - generic [ref=e517]: GMX
+          - button "Haedal Protocol protocol marker" [ref=e518] [cursor=pointer]:
+            - generic [ref=e520]: Haedal Protocol
+          - button "Jupiter protocol marker" [ref=e521] [cursor=pointer]:
+            - generic [ref=e523]: Jupiter
+          - button "Lido protocol marker" [ref=e524] [cursor=pointer]:
+            - generic [ref=e526]: Lido
+          - button "Sky protocol marker" [ref=e527] [cursor=pointer]:
+            - generic [ref=e529]: Sky
+          - button "Momentum protocol marker" [ref=e530] [cursor=pointer]:
+            - generic [ref=e532]: Momentum
+          - button "NAVI Lending protocol marker" [ref=e533] [cursor=pointer]:
+            - generic [ref=e535]: NAVI Lending
+          - button "Raydium protocol marker" [ref=e536] [cursor=pointer]:
+            - generic [ref=e538]: Raydium
+          - button "Scallop Lend protocol marker" [ref=e539] [cursor=pointer]:
+            - generic [ref=e541]: Scallop Lend
+          - button "SpringSui protocol marker" [ref=e542] [cursor=pointer]:
+            - generic [ref=e544]: SpringSui
+          - button "Suilend protocol marker" [ref=e545] [cursor=pointer]:
+            - generic [ref=e547]: Suilend
+          - button "Uniswap protocol marker" [ref=e548] [cursor=pointer]:
+            - generic [ref=e550]: Uniswap
+          - button "Volo LST protocol marker" [ref=e551] [cursor=pointer]:
+            - generic [ref=e553]: Volo LST
+    - complementary [ref=e100]:
+      - generic [ref=e101]:
+        - generic [ref=e104]: Block Stream
+        - generic [ref=e105]: "#248,239,915"
+      - generic "Recent blocks" [ref=e106]:
+        - button "Block 248,239,792, Finalized, 1268ms finality" [ref=e397]
+        - button "Block 248,239,797, Finalized, 1415ms finality" [ref=e412]
+        - button "Block 248,239,801, Finalized, 1420ms finality" [ref=e413]
+        - button "Block 248,239,805, Finalized, 1373ms finality" [ref=e414]
+        - button "Block 248,239,810, Finalized, 1380ms finality" [ref=e415]
+        - button "Block 248,239,813, Finalized, 1420ms finality" [ref=e416]
+        - button "Block 248,239,817, Finalized, 1420ms finality" [ref=e417]
+        - button "Block 248,239,821, Finalized, 1364ms finality" [ref=e418]
+        - button "Block 248,239,825, Finalized, 1345ms finality" [ref=e419]
+        - button "Block 248,239,829, Finalized, 1420ms finality" [ref=e420]
+        - button "Block 248,239,832, Finalized, 1259ms finality" [ref=e421]
+        - button "Block 248,239,836, Failed, 1180ms finality" [ref=e436]
+        - button "Block 248,239,839, Finalized, 1343ms finality" [ref=e437]
+        - button "Block 248,239,841, Failed, 1239ms finality" [ref=e438]
+        - button "Block 248,239,843, Finalized, 1069ms finality" [ref=e439]
+        - button "Block 248,239,847, Failed, 1196ms finality" [ref=e440]
+        - button "Block 248,239,852, Finalized, 1298ms finality" [ref=e441]
+        - button "Block 248,239,854, Finalized, 1352ms finality" [ref=e456]
+        - button "Block 248,239,860, Failed, 1420ms finality" [ref=e457]
+        - button "Block 248,239,863, Pending, 1420ms finality" [ref=e458]
+        - button "Block 248,239,867, Failed, 1316ms finality" [ref=e459]
+        - button "Block 248,239,870, Failed, 1321ms finality" [ref=e460]
+        - button "Block 248,239,874, Finalized, 1123ms finality" [ref=e461]
+        - button "Block 248,239,879, Finalized, 1069ms finality" [ref=e462]
+        - button "Block 248,239,882, Finalized, 1196ms finality" [ref=e463]
+        - button "Block 248,239,887, Pending, 1098ms finality" [ref=e554]
+        - button "Block 248,239,891, Finalized, 1033ms finality" [ref=e555]
+        - button "Block 248,239,895, Failed, 1016ms finality" [ref=e556]
+        - button "Block 248,239,901, Finalized, 940ms finality" [ref=e557]
+        - button "Block 248,239,906, Failed, 1008ms finality" [ref=e558]
+        - button "Block 248,239,912, Finalized, 977ms finality" [ref=e559]
+        - button "Block 248,239,915, Finalized, 766ms finality" [ref=e574]
+      - generic [ref=e139]:
+        - generic [ref=e140]: Avg latency
+        - strong [ref=e141]: 1234 ms
+    - complementary [ref=e142]:
+      - generic [ref=e143]:
+        - generic [ref=e146]: Live Markets
+        - generic [ref=e147]: 25 Protocols
+      - generic [ref=e148]:
+        - generic [ref=e149]:
+          - img [ref=e151]
+          - generic [ref=e154]: Total TVL
+          - strong [ref=e155]: $62.78B
+          - generic [ref=e156]: +1.84%
+        - generic [ref=e157]:
+          - img [ref=e159]
+          - generic [ref=e163]: 24h Volume
+          - strong [ref=e164]: $14.41B
+          - generic [ref=e165]: "-0.42%"
+        - generic [ref=e166]:
+          - img [ref=e168]
+          - generic [ref=e175]: Live TPS
+          - strong [ref=e176]: 3.5K
+          - generic [ref=e177]: rolling
+      - generic [ref=e178]:
+        - generic [ref=e179]:
+          - img [ref=e180]
+          - text: Mainnet
+        - strong [ref=e181]: 24h rolling
+  - generic:
+    - region "Notifications"
+  - generic:
+    - region "Notifications":
+      - dialog "Aave user activity up" [ref=e560]:
+        - generic [ref=e562]:
+          - generic [ref=e563]:
+            - img
+          - generic [ref=e564]:
+            - heading "Aave user activity up" [level=2] [ref=e565]:
+              - generic [ref=e566]:
+                - button "Aave" [ref=e567]
+                - generic [ref=e568]: user activity up
+            - paragraph [ref=e569]:
+              - generic [ref=e570]:
+                - button "Optimism" [ref=e571]
+                - generic [ref=e572]: saw a fresh burst of wallet interactions.
+      - dialog "Base finality stable" [ref=e573]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - heading "Base finality stable" [level=2]:
+                - generic:
+                  - button "Base"
+                  - generic: finality stable
+              - paragraph: Blocks confirming near 2s with healthy relay activity.
+      - dialog "Compound routed $22.9M" [ref=e464]:
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - heading "Compound routed $22.9M" [level=2]:
+                - generic:
+                  - button "Compound"
+                  - generic: routed $22.9M
+              - paragraph:
+                - generic:
+                  - button "Ethereum"
+                  - generic: liquidity path settled across live markets.

@@ -1,0 +1,12 @@
+export * as SettingsAppearance from "./settings-appearance";
+export * as SettingsBilling from "./settings-billing";
+export * as SettingsBranding from "./settings-branding";
+export * as SettingsDeveloper from "./settings-developer";
+export * as SettingsIntegrations from "./settings-integrations";
+export * as SettingsLocalization from "./settings-localization";
+export * as SettingsPermissions from "./settings-permissions";
+export * as SettingsPrivacy from "./settings-privacy";
+export * as SettingsProfile from "./settings-profile";
+export * as SettingsSecurity from "./settings-security";
+export * as SettingsSso from "./settings-sso";
+export * as SettingsWebhooks from "./settings-webhooks";
