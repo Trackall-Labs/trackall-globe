@@ -6,6 +6,7 @@ const BLOCK_META_CHANNEL = "blocks.meta";
 const TRANSACTIONS_CHANNEL = "transactions.integrations";
 const MAX_BLOCKS = 48;
 const TRANSACTION_WINDOW_MS = 5_000;
+const TPS_SNAPSHOT_INTERVAL_MS = 500;
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 
@@ -217,7 +218,8 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
   const [error, setError] = useState<string | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<BlockStreamStatus>("idle");
   const [transactionError, setTransactionError] = useState<string | null>(null);
-  const [transactionTimestamps, setTransactionTimestamps] = useState<number[]>([]);
+  const [transactionsPerSecond, setTransactionsPerSecond] = useState(500);
+  const transactionTimestampsRef = useRef<number[]>([]);
 
   const onTransactionRef = useRef<UseBlockStreamOptions["onTransaction"]>(undefined);
   useLayoutEffect(() => {
@@ -321,9 +323,8 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
         if (message.type === "solana.transaction") {
           setTransactionStatus("subscribed");
           setTransactionError(null);
-          setTransactionTimestamps((current) =>
-            pruneTransactionTimestamps([...current, transactionTimestampMs(message)]),
-          );
+          const now = transactionTimestampMs(message);
+          transactionTimestampsRef.current = pruneTransactionTimestamps([...transactionTimestampsRef.current, now]);
           onTransactionRef.current?.(message);
         }
       });
@@ -346,8 +347,10 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
 
     connect();
     pruneTimer = window.setInterval(() => {
-      setTransactionTimestamps((current) => pruneTransactionTimestamps(current));
-    }, 1_000);
+      const now = Date.now();
+      transactionTimestampsRef.current = pruneTransactionTimestamps(transactionTimestampsRef.current, now);
+      setTransactionsPerSecond(transactionTimestampsRef.current.length / (TRANSACTION_WINDOW_MS / 1_000));
+    }, TPS_SNAPSHOT_INTERVAL_MS);
 
     return () => {
       cancelled = true;
@@ -357,9 +360,6 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
     };
   }, []);
 
-  const transactionWindowCount = transactionTimestamps.length;
-  const transactionsPerSecond = transactionWindowCount / (TRANSACTION_WINDOW_MS / 1_000);
-
   return useMemo(
     () => ({
       blocks,
@@ -367,7 +367,6 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
       status,
       transactionError,
       transactionStatus,
-      transactionWindowCount,
       transactionsPerSecond,
     }),
     [
@@ -376,7 +375,6 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
       status,
       transactionError,
       transactionStatus,
-      transactionWindowCount,
       transactionsPerSecond,
     ],
   );

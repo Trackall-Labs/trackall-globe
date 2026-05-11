@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
 import { Card } from "@orbit/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@orbit/ui/tooltip";
 import { clamp, fmtCompact, fmtUsd } from "@/lib/format";
 import { type Network } from "@/lib/networks";
 import type { TrackallSolanaChainMetrics } from "@/lib/trackall-api";
@@ -246,7 +247,7 @@ export function MarketMetricsPanel({
       <div className="metric-grid" data-compact={compact ? "" : undefined}>
         <Metric icon={<TrendingUpIcon />} label="Total TVL" value={tvl} format={fmtUsd} delta={tvlDelta} />
         <Metric icon={<DatabaseIcon />} label="24h Volume" value={volume} format={fmtUsd} delta={volumeDelta} />
-        <Metric icon={<RadioTowerIcon />} label="Live TPS" value={liveTps} format={formatTps} />
+        <Metric icon={<RadioTowerIcon />} label="Live TPS" tooltip="DeFi transactions only" value={liveTps} format={formatTps} duration={400} />
       </div>
       <div className="panel-footer">
         <span className="network-footer-label">
@@ -267,14 +268,18 @@ export function MarketMetricsPanel({
 function Metric({
   icon,
   label,
+  tooltip,
   value,
   format,
+  duration,
   delta,
 }: {
   icon: React.ReactNode;
   label: string;
+  tooltip?: string;
   value: number;
   format: (n: number) => string;
+  duration?: number;
   delta?: string;
 }) {
   const deltaVariant = delta?.startsWith("-") ? "error" : delta?.startsWith("+") ? "success" : "info";
@@ -282,9 +287,18 @@ function Metric({
   return (
     <div className="metric">
       <div className="metric-icon">{icon}</div>
-      <span className="metric-label">{label}</span>
+      {tooltip ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger render={<span className="metric-label" />}>{label}</TooltipTrigger>
+            <TooltipContent>{tooltip}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <span className="metric-label">{label}</span>
+      )}
       <strong className="tabular-nums">
-        <AnimatedNumber value={value} format={format} />
+        <AnimatedNumber value={value} format={format} duration={duration} />
       </strong>
       {delta ? (
         <Badge variant={deltaVariant} size="sm" className="metric-delta font-mono tabular-nums">
