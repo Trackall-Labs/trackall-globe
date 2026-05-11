@@ -670,7 +670,6 @@ function GlobeSceneComponent({
     const height = Math.round(size.height * dpr);
     const baseScale = baseGlobeScale(size.width);
     let animationFrame = 0;
-    let pausedUntil = 0;
 
     const tonePalette: Record<ArcTone, [number, number, number]> = {
       info: theme.info,
@@ -945,7 +944,7 @@ function GlobeSceneComponent({
 
         if (Math.abs(velocity.phi) < DRAG_INERTIA_STOP) velocity.phi = 0;
         if (Math.abs(velocity.theta) < DRAG_INERTIA_STOP) velocity.theta = 0;
-      } else if (!dragRef.current && !markerHoverRef.current && Date.now() > pausedUntil) {
+      } else if (!dragRef.current && !markerHoverRef.current) {
         phiRef.current += AUTO_ROTATION_SPEED;
       }
 
@@ -992,10 +991,6 @@ function GlobeSceneComponent({
     };
     animationFrame = requestAnimationFrame(animate);
 
-    const pause = () => {
-      pausedUntil = Date.now() + 9000;
-    };
-
     const suppressSelection = () => {
       suppressSelectionUntilRef.current = Date.now() + SELECT_SUPPRESS_MS;
     };
@@ -1031,7 +1026,6 @@ function GlobeSceneComponent({
       event.preventDefault();
       updateZoom(nextZoom);
       suppressSelection();
-      pause();
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -1047,8 +1041,7 @@ function GlobeSceneComponent({
           zoom: zoomRef.current,
         };
         dragRef.current = null;
-        pause();
-        return;
+          return;
       }
 
       dragRef.current = {
@@ -1056,7 +1049,6 @@ function GlobeSceneComponent({
         y: event.clientY,
         distance: 0,
       };
-      pause();
     };
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -1072,8 +1064,7 @@ function GlobeSceneComponent({
         }
         rotationVelocityRef.current = { phi: 0, theta: 0 };
         suppressSelection();
-        pause();
-        return;
+          return;
       }
 
       const drag = dragRef.current;
@@ -1100,15 +1091,13 @@ function GlobeSceneComponent({
         distance,
       };
       if (distance > SELECT_DRAG_THRESHOLD) suppressSelection();
-      pause();
     };
 
     const handlePointerUp = (event: PointerEvent) => {
       if (event.type === "pointercancel") {
         resetInput();
         suppressSelection();
-        pause();
-        return;
+          return;
       }
 
       activePointersRef.current.delete(event.pointerId);
@@ -1126,15 +1115,13 @@ function GlobeSceneComponent({
             distance: 0,
           }
         : null;
-      pause();
     };
 
     const handleLostPointerCapture = () => {
       if (activePointersRef.current.size > 0 || dragRef.current || pinchRef.current) {
         resetInput();
         suppressSelection();
-        pause();
-      }
+        }
     };
 
     const handleWindowBlur = () => {
