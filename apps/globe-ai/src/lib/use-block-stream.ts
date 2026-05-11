@@ -6,7 +6,7 @@ const BLOCK_META_CHANNEL = "blocks.meta";
 const TRANSACTIONS_CHANNEL = "transactions.integrations";
 const MAX_BLOCKS = 64;
 const TRANSACTION_WINDOW_MS = 5_000;
-const TPS_SNAPSHOT_INTERVAL_MS = 500;
+const TPS_FLUSH_INTERVAL_MS = 500;
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 
@@ -203,9 +203,12 @@ function transactionTimestampMs(message: SolanaTransactionMessage) {
   return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
-function pruneTransactionTimestamps(timestamps: number[], now = Date.now()) {
+function pruneTransactionTimestampsInPlace(timestamps: number[], now = Date.now()) {
   const windowStartedAt = now - TRANSACTION_WINDOW_MS;
-  return timestamps.filter((timestamp) => timestamp >= windowStartedAt);
+  let drop = 0;
+  while (drop < timestamps.length && timestamps[drop]! < windowStartedAt) drop++;
+  if (drop > 0) timestamps.splice(0, drop);
+  return timestamps;
 }
 
 export type UseBlockStreamOptions = {
@@ -218,7 +221,7 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
   const [error, setError] = useState<string | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<BlockStreamStatus>("idle");
   const [transactionError, setTransactionError] = useState<string | null>(null);
-  const [transactionsPerSecond, setTransactionsPerSecond] = useState(500);
+  const [transactionsPerSecond, setTransactionsPerSecond] = useState(0);
   const transactionTimestampsRef = useRef<number[]>([]);
 
   const onTransactionRef = useRef<UseBlockStreamOptions["onTransaction"]>(undefined);
@@ -321,10 +324,9 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
         }
 
         if (message.type === "solana.transaction") {
-          setTransactionStatus("subscribed");
-          setTransactionError(null);
-          const now = transactionTimestampMs(message);
-          transactionTimestampsRef.current = pruneTransactionTimestamps([...transactionTimestampsRef.current, now]);
+          setTransactionStatus((current) => (current === "subscribed" ? current : "subscribed"));
+          setTransactionError((current) => (current === null ? current : null));
+          transactionTimestampsRef.current.push(transactionTimestampMs(message));
           onTransactionRef.current?.(message);
         }
       });
@@ -347,10 +349,10 @@ export function useBlockStream(options?: UseBlockStreamOptions) {
 
     connect();
     pruneTimer = window.setInterval(() => {
-      const now = Date.now();
-      transactionTimestampsRef.current = pruneTransactionTimestamps(transactionTimestampsRef.current, now);
-      setTransactionsPerSecond(transactionTimestampsRef.current.length / (TRANSACTION_WINDOW_MS / 1_000));
-    }, TPS_SNAPSHOT_INTERVAL_MS);
+      const timestamps = pruneTransactionTimestampsInPlace(transactionTimestampsRef.current);
+      const nextTps = timestamps.length / (TRANSACTION_WINDOW_MS / 1_000);
+      setTransactionsPerSecond((current) => (current === nextTps ? current : nextTps));
+    }, TPS_FLUSH_INTERVAL_MS);
 
     return () => {
       cancelled = true;
