@@ -896,11 +896,11 @@ function RecentBlocksStrip({
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="size-1.5 rounded-sm bg-sky-500/80" />
-              <span>finalized</span>
+              <span>confirmed</span>
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="size-1.5 rounded-sm bg-emerald-500/80" />
-              <span>confirmed</span>
+              <span>finalized</span>
             </span>
             <span className="size-1 rounded-full bg-muted-foreground/40" />
             <span className="tabular-nums">
