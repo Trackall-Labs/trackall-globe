@@ -68,6 +68,7 @@ import {
   type ProtocolUserRow,
   type ProtocolUserType,
 } from "@/lib/protocol-stats";
+import { seriesChange } from "@/lib/series-change";
 import type { Protocol } from "@/lib/types";
 import {
   fetchSolanaTopAggregatePortfolioWallets,
@@ -1014,21 +1015,6 @@ function SortableHead({
       </button>
     </TableHead>
   );
-}
-
-function percentChange(current: number | null, previous: number | null) {
-  if (current == null || previous == null || previous === 0) return null;
-  return ((current - previous) / previous) * 100;
-}
-
-function seriesChange(points: Array<{ timestamp: string; value: number | null }>, days: number) {
-  const latest = points.at(-1);
-  if (!latest || latest.value == null) return null;
-  const cutoff = Date.parse(latest.timestamp) - days * 24 * 60 * 60 * 1000;
-  const previous =
-    [...points].reverse().find((point) => point.value != null && Date.parse(point.timestamp) <= cutoff) ??
-    points.find((point) => point.value != null);
-  return percentChange(latest.value, previous?.value ?? null);
 }
 
 function latestPlotValue(points: Array<{ activeUsers?: number | null; timestamp: string }>) {
