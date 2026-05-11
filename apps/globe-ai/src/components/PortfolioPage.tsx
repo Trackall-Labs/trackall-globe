@@ -388,16 +388,16 @@ const SOLANA_SAMPLE_WALLETS: SampleWallet[] = [
 		accent: "var(--chart-1)",
 	},
 	{
-		label: "Kamino Actions",
-		hint: "Kamino wallet",
-		address: "2bhkQ6uVn32ddiG4Fe3DVbLsrExdb3ubaY6i1G4szEmq",
+		label: "Kamino Whale",
+		hint: "Kamino Whale",
+		address: "ASQ4kYjSYGUYbbYtsaLhUeJS6RtrN4Uwp4XbF4gDifvr",
 		icon: WavesIcon,
 		accent: "var(--chart-3)",
 	},
 	{
-		label: "Wintermute",
-		hint: "Market maker",
-		address: "44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra",
+		label: "Tramplin Staker",
+		hint: "Tramplin Staker",
+		address: "2JjwLZkcA2EsXgKPLz67uBVYDEUqPErjv6wopBtBrt13",
 		icon: LandmarkIcon,
 		accent: "var(--chart-5)",
 	},
@@ -899,11 +899,7 @@ function WalletValueChart({
 								stopColor={strokeColor}
 								stopOpacity={showingSkeleton ? 0.16 : 0.5}
 							/>
-							<stop
-								offset="100%"
-								stopColor={strokeColor}
-								stopOpacity={0.04}
-							/>
+							<stop offset="100%" stopColor={strokeColor} stopOpacity={0.04} />
 						</linearGradient>
 					</defs>
 					<Chart.ChartGrid />
@@ -2044,11 +2040,7 @@ export function PortfolioPage({
 					cachedAt: cachedState.cachedAt,
 					positions: cachedState.cachePositions,
 				})
-			: fetchSolanaPositionCache(
-					loadWalletAddress,
-					config,
-					controller.signal,
-				);
+			: fetchSolanaPositionCache(loadWalletAddress, config, controller.signal);
 		const livePromise = cachedState?.liveLoaded
 			? Promise.resolve(cachedState.livePositions)
 			: fetchSolanaPositions(loadWalletAddress, config, controller.signal);
