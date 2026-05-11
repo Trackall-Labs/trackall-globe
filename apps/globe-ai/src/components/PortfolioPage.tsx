@@ -1110,7 +1110,7 @@ function NetWorthAndAllocation({
 					})}
 				</div>
 
-				<div className="scrollbar-none mt-4 max-h-[184px] overflow-y-auto">
+				<div className="scrollbar-none mt-4 h-[184px] overflow-y-auto">
 					<ul className="space-y-2 font-mono text-[11px]">
 						{slices.map((slice) => {
 							const share =
