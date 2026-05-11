@@ -43,8 +43,8 @@ export type NetworkChartPoint = {
 
 export type NetworkProtocolRow = {
   protocol: Protocol;
-  tvl: number;
-  volume30d: number;
+  tvl: number | null;
+  volume30d: number | null;
   netFlow: number;
   share: number;
   change24h: number;
@@ -195,10 +195,10 @@ function buildTopProtocols(
     };
   });
 
-  rows.sort((a, b) => b.tvl - a.tvl);
-  const total = rows.reduce((sum, row) => sum + row.tvl, 0);
+  rows.sort((a, b) => (b.tvl ?? 0) - (a.tvl ?? 0));
+  const total = rows.reduce((sum, row) => sum + (row.tvl ?? 0), 0);
   for (const row of rows) {
-    row.share = total === 0 ? 0 : (row.tvl / total) * 100;
+    row.share = total === 0 ? 0 : ((row.tvl ?? 0) / total) * 100;
   }
   return rows;
 }

@@ -706,8 +706,12 @@ function TopProtocolsTable({
                   </div>
                 </div>
               </TableCell>
-              <TableCell className="text-right tabular-nums">{formatUsd(row.tvl)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatUsd(row.volume30d)}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {row.tvl == null ? "—" : formatUsd(row.tvl)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {row.volume30d == null ? "—" : formatUsd(row.volume30d)}
+              </TableCell>
               <TableCell>
                 <ShareBar value={row.share} />
               </TableCell>
@@ -1238,16 +1242,16 @@ function buildSolanaTopProtocols(
         netFlow: 0,
         protocol,
         share: 0,
-        tvl: platform.tvlUsd ?? 0,
-        volume30d: platform.volume24hUsd ?? 0,
+        tvl: platform.tvlUsd,
+        volume30d: platform.volume24hUsd,
       } satisfies NetworkProtocolRow;
     })
     .filter((row): row is NetworkProtocolRow => row !== null)
-    .sort((a, b) => b.tvl - a.tvl);
+    .sort((a, b) => (b.tvl ?? 0) - (a.tvl ?? 0));
 
-  const totalTvl = rows.reduce((sum, row) => sum + row.tvl, 0);
+  const totalTvl = rows.reduce((sum, row) => sum + (row.tvl ?? 0), 0);
   for (const row of rows) {
-    row.share = totalTvl === 0 ? 0 : (row.tvl / totalTvl) * 100;
+    row.share = totalTvl === 0 ? 0 : ((row.tvl ?? 0) / totalTvl) * 100;
   }
   return rows;
 }
