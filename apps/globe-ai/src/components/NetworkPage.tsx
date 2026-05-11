@@ -24,7 +24,7 @@ import {
   UsersIcon,
   WalletIcon,
 } from "lucide-react";
-import { Area, AreaChart } from "recharts";
+import { Area, AreaChart, XAxis, YAxis } from "recharts";
 import { Avatar, AvatarFallback } from "@orbit/ui/avatar";
 import { Badge } from "@orbit/ui/badge";
 import { Button } from "@orbit/ui/button";
@@ -542,7 +542,7 @@ function ActivityChartCard({
         ))}
       </div>
 
-      <Chart.ChartContainer className="mt-4 h-60 [&_.recharts-yAxis_.recharts-cartesian-axis-tick_text]:tracking-normal">
+      <Chart.ChartContainer className="mt-4 h-60 [&_.recharts-cartesian-axis-tick_text]:!tracking-normal">
         <AreaChart data={chartData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
           <defs>
             {series.map((item) => (
@@ -560,11 +560,25 @@ function ActivityChartCard({
             ))}
           </defs>
           <Chart.ChartGrid />
-          <Chart.ChartAxis dataKey="label" interval={tickInterval} />
-          <Chart.ChartAxis
-            axis="y"
+          <XAxis
+            dataKey="label"
+            interval={tickInterval}
+            tick={{ fontSize: 10, letterSpacing: 0 }}
+            tickLine={false}
+            axisLine={false}
+            tickMargin={10}
+            minTickGap={8}
+            stroke="currentColor"
+          />
+          <YAxis
             width={56}
             tickFormatter={(value) => axisValue(metric, Number(value))}
+            tick={{ fontSize: 10, letterSpacing: 0 }}
+            tickLine={false}
+            axisLine={false}
+            tickMargin={10}
+            minTickGap={8}
+            stroke="currentColor"
           />
           <Chart.ChartTooltip />
           {series.map((item) => (
