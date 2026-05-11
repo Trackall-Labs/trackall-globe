@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ActivityIcon,
   ArrowDownIcon,
@@ -859,6 +859,9 @@ function intervalToHeightPx(intervalMs: number | null, fallbackMs: number) {
   return `${BLOCK_BAR_MIN_PX + ratio * (BLOCK_BAR_MAX_PX - BLOCK_BAR_MIN_PX)}px`;
 }
 
+const LIVE_BLOCKS_SLOT_COUNT = 64;
+const LIVE_BLOCKS_ERROR_GRACE_MS = 6_000;
+
 function RecentBlocksStrip({
   blocks,
   liveBlocks = [],
@@ -870,15 +873,28 @@ function RecentBlocksStrip({
   streamError?: string | null;
   streamStatus?: BlockStreamStatus;
 }) {
-  if (liveBlocks.length > 0 || streamStatus !== "idle" || streamError) {
+  const hasEverHadBlocksRef = useRef(false);
+  if (liveBlocks.length > 0) hasEverHadBlocksRef.current = true;
+  const [graceElapsed, setGraceElapsed] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setGraceElapsed(true), LIVE_BLOCKS_ERROR_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const displayError =
+    streamError && (hasEverHadBlocksRef.current || graceElapsed) ? streamError : null;
+  const displayStatus: BlockStreamStatus =
+    streamStatus === "error" && !displayError ? "connecting" : streamStatus;
+
+  if (liveBlocks.length > 0 || displayStatus !== "idle" || displayError) {
     const visibleLiveBlocks = [...liveBlocks]
       .sort(compareLiveBlocksAscending)
-      .slice(-64);
+      .slice(-LIVE_BLOCKS_SLOT_COUNT);
     const avgBlockMs = averageLiveBlockMs(visibleLiveBlocks);
     const intervalsMs = blockIntervalsMs(visibleLiveBlocks);
     const fallbackIntervalMs = avgBlockMs ?? 500;
     const latest = visibleLiveBlocks.at(-1);
-    const statusLabel = streamError ?? liveStreamStatusLabel(streamStatus, visibleLiveBlocks.length > 0);
+    const padCount = Math.max(0, LIVE_BLOCKS_SLOT_COUNT - visibleLiveBlocks.length);
+    const showErrorBanner = displayError != null && visibleLiveBlocks.length === 0;
 
     return (
       <section className="rounded-xl border border-border/60 bg-background/40 p-5">
@@ -909,7 +925,11 @@ function RecentBlocksStrip({
           </div>
         </header>
 
-        {visibleLiveBlocks.length > 0 ? (
+        {showErrorBanner ? (
+          <div className="mt-4 rounded-lg border border-border/60 bg-background/35 px-4 py-6 text-center text-sm text-muted-foreground">
+            {displayError}
+          </div>
+        ) : (
           <TooltipProvider delay={80} closeDelay={40}>
             <div className="mt-4 grid grid-cols-64 gap-0.5" dir="rtl" role="list">
               {[...visibleLiveBlocks].reverse().map((block, ageFromNewest) => {
@@ -953,16 +973,33 @@ function RecentBlocksStrip({
                   </Tooltip>
                 );
               })}
+              {Array.from({ length: padCount }, (_, i) => {
+                const height = 28 + ((i * 13 + 7) % 28);
+                const delay = (i * 70) % 1400;
+                return (
+                  <div
+                    key={`skeleton-${i}`}
+                    role="listitem"
+                    aria-hidden="true"
+                    className="relative flex h-16 items-end justify-center rounded-md"
+                  >
+                    <span
+                      className="block w-full origin-bottom animate-pulse rounded-sm bg-muted-foreground/25"
+                      style={{ height: `${height}px`, animationDelay: `${delay}ms` }}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </TooltipProvider>
-        ) : (
-          <div className="mt-4 rounded-lg border border-border/60 bg-background/35 px-4 py-6 text-center text-sm text-muted-foreground">
-            {statusLabel}
-          </div>
         )}
 
         <footer className="mt-3 flex items-center justify-between gap-4 text-xs text-muted-foreground">
-          <span className="font-mono tabular-nums">{latest ? liveBlockTitle(latest) : "No live blocks"}</span>
+          <span className="font-mono tabular-nums">
+            {latest
+              ? liveBlockTitle(latest)
+              : displayError ?? liveStreamStatusLabel(displayStatus, false)}
+          </span>
           <span className="truncate font-mono uppercase tracking-[0.18em]">
             {latest
               ? `${formatLiveBlockHash(latest.blockhash)} · ${formatLiveBlockTime(latest.blockTime)}`

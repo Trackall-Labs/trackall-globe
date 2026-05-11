@@ -182,8 +182,19 @@ export function BlockHistoryPanel({ blocks, compact, streamError, streamStatus }
   }, [blocks]);
   const lastDurationMs = useMemo(() => lastBlockDurationMs(blocks), [blocks]);
 
+  const hasEverHadBlocksRef = useRef(false);
+  if (blocks.length > 0) hasEverHadBlocksRef.current = true;
+  const [graceElapsed, setGraceElapsed] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setGraceElapsed(true), 6_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const displayError = streamError && (hasEverHadBlocksRef.current || graceElapsed) ? streamError : null;
+  const displayStatus: BlockStreamStatus =
+    streamStatus === "error" && !displayError ? "connecting" : streamStatus;
+
   return (
-    <Card className="data-panel block-panel" data-status={streamStatus} render={<aside />}>
+    <Card className="data-panel block-panel" data-status={displayStatus} render={<aside />}>
       <div className="panel-header">
         <div className="panel-title">
           <span className="live-dot" />
@@ -191,12 +202,28 @@ export function BlockHistoryPanel({ blocks, compact, streamError, streamStatus }
         </div>
         <span className="panel-kpi tabular-nums">{latest ? blockTitle(latest) : "..."}</span>
       </div>
-      {ascending.length > 0 ? (
+      {ascending.length === 0 && (displayStatus === "error" || displayError) ? (
+        <div className="block-empty-state" role="status">
+          {displayError ?? streamStatusLabel(displayStatus, false)}
+        </div>
+      ) : (
         <div
           className="block-bars"
           aria-label="Recent Solana blocks"
           onPointerLeave={() => setHoveredBlock(null)}
         >
+          {Array.from({ length: Math.max(0, SKELETON_BAR_COUNT - ascending.length) }, (_, i) => {
+            const height = 20 + ((i * 13 + 7) % 24);
+            const delay = (i * 70) % 1400;
+            return (
+              <span
+                key={`skeleton-${i}`}
+                className="block-bar block-bar-skeleton"
+                style={{ height: `${height}px`, animationDelay: `${delay}ms` }}
+                aria-hidden="true"
+              />
+            );
+          })}
           {ascending.map((block, ascendingIndex) => {
             const ageFromNewest = ascending.length - 1 - ascendingIndex;
             const intervalMs = intervals[ascendingIndex] ?? null;
@@ -223,14 +250,10 @@ export function BlockHistoryPanel({ blocks, compact, streamError, streamStatus }
             );
           })}
         </div>
-      ) : (
-        <div className="block-empty-state" role="status">
-          {streamError ?? streamStatusLabel(streamStatus, false)}
-        </div>
       )}
       {hoveredBlock ? <BlockHoverCard preview={hoveredBlock} /> : null}
       <div className="panel-footer">
-        <span>{streamError ?? streamStatusLabel(streamStatus, blocks.length > 0)}</span>
+        <span>{displayError ?? streamStatusLabel(displayStatus, blocks.length > 0)}</span>
         <strong className={`${latencyColor(lastDurationMs)} tabular-nums`}>
           {latest ? formatMs(lastDurationMs) : "No blocks"}
         </strong>
@@ -269,6 +292,8 @@ function BlockCandle({
     />
   );
 }
+
+const SKELETON_BAR_COUNT = 44;
 
 function BlockHoverCard({ preview }: { preview: BlockPreview }) {
   if (typeof document === "undefined") return null;

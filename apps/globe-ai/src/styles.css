@@ -907,6 +907,38 @@ input {
   color: var(--success);
 }
 
+.block-bar-skeleton {
+  background: color-mix(in srgb, var(--muted-foreground) 32%, transparent);
+  color: var(--muted-foreground);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: block-skeleton-pulse 1600ms ease-in-out infinite;
+}
+
+.block-bar-skeleton:hover,
+.block-bar-skeleton:focus-visible {
+  outline: 0;
+  box-shadow: none;
+  transform: none;
+  opacity: 0.5;
+}
+
+@keyframes block-skeleton-pulse {
+  0%, 100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block-bar-skeleton {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
 .block-hover-card {
   position: fixed;
   z-index: 45;
