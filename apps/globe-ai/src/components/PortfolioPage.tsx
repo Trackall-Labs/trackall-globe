@@ -391,14 +391,14 @@ const SOLANA_SAMPLE_WALLETS: SampleWallet[] = [
 	{
 		label: "Kamino Whale",
 		hint: "Kamino Whale",
-		address: "ASQ4kYjSYGUYbbYtsaLhUeJS6RtrN4Uwp4XbF4gDifvr",
+		address: "3XmgTpc3bndpMdksjoN7jtd6nWsCvm6gSoJvTcySxCEP",
 		icon: WavesIcon,
 		accent: "var(--chart-3)",
 	},
 	{
-		label: "Tramplin Staker",
-		hint: "Tramplin Staker",
-		address: "2JjwLZkcA2EsXgKPLz67uBVYDEUqPErjv6wopBtBrt13",
+		label: "Defi Degen",
+		hint: "Defi Degen",
+		address: "93PSyNrS7zBhrXaHHfU1ZtfegcKq5SaCYc35ZwPVrK3K",
 		icon: LandmarkIcon,
 		accent: "var(--chart-5)",
 	},
