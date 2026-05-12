@@ -836,19 +836,19 @@ type LiveBlockState = "processed" | "finalized" | "confirmed";
 
 function liveBlockState(ageFromNewest: number): LiveBlockState {
   if (ageFromNewest === 0) return "processed";
-  if (ageFromNewest < CONFIRMATION_DEPTH) return "finalized";
-  return "confirmed";
+  if (ageFromNewest < CONFIRMATION_DEPTH) return "confirmed";
+  return "finalized";
 }
 
 function liveBlockTone(state: LiveBlockState) {
   if (state === "processed") return "bg-muted-foreground/45";
-  if (state === "finalized") return "bg-sky-500/80";
+  if (state === "confirmed") return "bg-sky-500/80";
   return "bg-emerald-500/80";
 }
 
 function liveBlockDotTone(state: LiveBlockState) {
   if (state === "processed") return "bg-muted-foreground/60";
-  if (state === "finalized") return "bg-sky-500";
+  if (state === "confirmed") return "bg-sky-500";
   return "bg-emerald-500";
 }
 

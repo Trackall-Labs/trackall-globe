@@ -898,13 +898,13 @@ input {
 }
 
 .block-bar-finalized {
-  background: var(--info);
-  color: var(--info);
+  background: var(--success);
+  color: var(--success);
 }
 
 .block-bar-confirmed {
-  background: var(--success);
-  color: var(--success);
+  background: var(--info);
+  color: var(--info);
 }
 
 .block-bar-skeleton {

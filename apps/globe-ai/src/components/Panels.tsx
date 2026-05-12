@@ -54,8 +54,8 @@ type LiveBlockState = "processed" | "finalized" | "confirmed";
 
 function liveBlockState(ageFromNewest: number): LiveBlockState {
   if (ageFromNewest === 0) return "processed";
-  if (ageFromNewest < CONFIRMATION_DEPTH) return "finalized";
-  return "confirmed";
+  if (ageFromNewest < CONFIRMATION_DEPTH) return "confirmed";
+  return "finalized";
 }
 
 function liveBlockSlot(block: BlockEntry) {
