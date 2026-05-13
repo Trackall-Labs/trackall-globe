@@ -742,17 +742,6 @@ function formatPlotLabel(
 	});
 }
 
-function walletPlotDelta(points: TrackallSolanaPortfolioPlotPoint[]) {
-	const first = points[0];
-	const last = points[points.length - 1];
-	if (!first || !last) return null;
-	const delta = last.totalUsd - first.totalUsd;
-	return {
-		delta,
-		pct: first.totalUsd > 0 ? (delta / first.totalUsd) * 100 : 0,
-	};
-}
-
 function walletPlotSkeletonData(fallbackValue: number) {
 	const base =
 		Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : 100;
@@ -1006,13 +995,10 @@ function NetWorthAndAllocation({
 				}));
 
 	const plotPoints = plotState?.plot?.points ?? [];
-	const latestPlotPoint = plotPoints[plotPoints.length - 1];
-	const plotChange = walletPlotDelta(plotPoints);
-	const displayedNetWorth = latestPlotPoint?.totalUsd ?? portfolio.netWorth;
-	const displayedChangeDelta = plotChange?.delta ?? portfolio.netWorthChange24h;
-	const displayedChangePct = plotChange?.pct ?? portfolio.netWorthChangePct24h;
+	const displayedNetWorth = portfolio.netWorth;
+	const displayedChangeDelta = portfolio.netWorthChange24h;
+	const displayedChangePct = portfolio.netWorthChangePct24h;
 	const negative = displayedChangeDelta < 0;
-	const changeLabel = plotChange ? "plot" : "today";
 
 	return (
 		<div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border/60 bg-border/60 shadow-[0_28px_70px_-54px_rgb(0_0_0/0.9)] backdrop-blur-xl lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -1046,7 +1032,7 @@ function NetWorthAndAllocation({
 							</span>
 						</div>
 						<div className="mt-1 font-mono text-muted-foreground text-xs tabular-nums">
-							{formatUsdDelta(displayedChangeDelta)} {changeLabel} · spot{" "}
+							{formatUsdDelta(displayedChangeDelta)} today · spot{" "}
 							{formatUsdCompact(spotValue)} · DeFi {formatUsdCompact(defiValue)}
 						</div>
 					</div>
@@ -1166,7 +1152,7 @@ function NetWorthAndAllocation({
 					</div>
 					<div className="bg-background/72 p-3">
 						<div className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
-							{plotChange ? "Plot delta" : "24H change"}
+							24H change
 						</div>
 						<div
 							className={
